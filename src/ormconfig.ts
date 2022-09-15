@@ -1,7 +1,5 @@
 import { ConnectionOptions } from 'typeorm';
-
-const POSTGRES_URI = process.env.POSTGRES_URI;
-const POSTGRES_READ_REPLICA_URIS: string[] = [];
+import { POSTGRES_READ_REPLICA_URIS, POSTGRES_URI } from './config';
 
 import {
     KeyValueEntity,

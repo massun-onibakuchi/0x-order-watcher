@@ -7,9 +7,6 @@
 # dotenv environment variables file
 .env
 
-# Generated metadata file
-metadata.json
-
 # Logs
 logs
 *.log
@@ -89,9 +86,3 @@ TODOs.org
 TODO.txt
 
 scripts
-
-# Solidity artifiacts and wrappers
-**/generated-artifacts
-**/generated-wrappers
-
-src-1/

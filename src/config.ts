@@ -73,6 +73,8 @@ export const SRA_ORDER_EXPIRATION_BUFFER_SECONDS: number = 10;
 
 export const POSTGRES_URI = DEFAULT_LOCAL_POSTGRES_URI;
 
+export const POSTGRES_READ_REPLICA_URIS: string[] = [];
+
 export const PROTOCOL_FEE_MULTIPLIER = new BigNumber(0);
 
 export const NATIVE_WRAPPED_TOKEN_SYMBOL = nativeWrappedTokenSymbol(CHAIN_ID);
