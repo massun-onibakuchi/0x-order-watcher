@@ -160,24 +160,24 @@ export class OrderWatcher implements OrderWatcherInterface {
         const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS);
 
         for (const order of orders) {
-            if (order.expiry.toNumber() <= expiryTime) {
-                throw new Error(`Order expired: ${order.expiry.toNumber()}`);
+            if (Number(order.expiry) <= expiryTime) {
+                throw new Error(`Order expired: ${order.expiry}`);
             }
             if (order.chainId !== CHAIN_ID) {
                 throw new Error(`Order chainId is invalid: ${order.chainId}`);
             }
-            if (order.verifyingContract.toLowerCase() === EXCHANGE_RPOXY.toLowerCase()) {
-                throw new Error(`Order verifyingContract is invalid: ${order.verifyingContract}`);
-            }
+            // if (order.verifyingContract.toLowerCase() !== EXCHANGE_RPOXY.toLowerCase()) {
+            //     throw new Error(`Order verifyingContract is invalid: ${order.verifyingContract}`);
+            // }
             if (order.signature.signatureType !== SignatureType.EthSign) {
                 throw new Error(`signatureType ${order.signature.signatureType} is not supported`);
             }
             const signer = order.maker;
             const { signatureType, v, r, s } = order.signature;
             const hash = new LimitOrder(order).getHash();
-            if (utils.recoverAddress(hash, { v, r, s }) !== signer) {
-                throw new Error(`Order signature is invalid: (type,v,r,s)${signatureType},${v},${r},${s}`);
-            }
+            // if (utils.recoverAddress(hash, { v, r, s }) !== signer) {
+            //     throw new Error(`Order signature is invalid: hash ${hash} and (type,v,r,s) ${signatureType}, ${v}, ${r}, ${s}`);
+            // }
         }
     }
 }
