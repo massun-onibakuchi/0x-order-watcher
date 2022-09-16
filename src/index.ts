@@ -53,7 +53,7 @@ provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
 
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
-        logger.debug('filledOrderEvent :>> ', filledOrderEvent);
+        logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     }, filledOrderEvent);
 });
@@ -64,7 +64,7 @@ provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
 
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
-        logger.debug('canceledOrderEvent :>> ', canceledOrderEvent);
+        logger.debug('canceledOrderEvent: orderHash ', canceledOrderEvent);
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
     }, canceledOrderEvent);
 });
@@ -85,8 +85,8 @@ app.post('/ping', function (req, res) {
 
 // receive POST request from 0x-api `POST orderbook/v1/order`.
 app.post('/orders', async function (req: express.Request, res) {
-    logger.debug(req.body);
     try {
+        logger.debug(req.body);
         // save orders to DB
         await orderWatcher.postOrdersAsync(req.body);
         res.status(200).json();

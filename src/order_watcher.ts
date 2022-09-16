@@ -1,13 +1,12 @@
 import { LimitOrder } from '@0x/protocol-utils';
 import { Connection, In, LessThanOrEqual } from 'typeorm';
-import { BigNumber, utils, providers, ethers } from 'ethers';
-import { SignatureType } from '@0x/types';
+import { BigNumber, providers, ethers } from 'ethers';
 
-import { SignedOrderV4Entity } from './entities';
 import { orderUtils } from './utils/order_utils';
 import { LimitOrderFilledEventArgs, SignedLimitOrder } from './types';
-import { CHAIN_ID, EXCHANGE_RPOXY, SRA_ORDER_EXPIRATION_BUFFER_SECONDS } from './config';
-import { NULL_ADDRESS, ONE_SECOND_MS } from './constants';
+import { EXCHANGE_RPOXY, SRA_ORDER_EXPIRATION_BUFFER_SECONDS } from './config';
+import { ONE_SECOND_MS } from './constants';
+import { SignedOrderV4Entity } from './entities';
 import { logger } from './logger';
 import NativeOrdersFeature from './abi/NativeOrdersFeature.json';
 
@@ -39,7 +38,7 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev assume schema has already been validated.
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
-        this.validateOrders(orders);
+        await this.validateOrders(orders);
 
         // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
         await this._connection.getRepository(SignedOrderV4Entity).save(
@@ -60,7 +59,6 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// if remainingFillableTakerAmountが0なら完全約定であるので削除する
     /// else 部分約定とみなして、remainingFillableTakerAmountを更新
     public async updateFilledOrderAsync(event: LimitOrderFilledEventArgs): Promise<void> {
-
         const signedOrdersEntity = await this._connection.getRepository(SignedOrderV4Entity).findOne(event.orderHash);
         if (!signedOrdersEntity?.remainingFillableTakerAmount) {
             return;
@@ -145,39 +143,44 @@ export class OrderWatcher implements OrderWatcherInterface {
     ///  - chainIdが正しいか
     ///  - verifyingContractが正しいZeroExProxyのアドレスか
     ///  - 署名が正しいか
-    ///  - TODO: makerが十分な残高を持っているか, allowanceが十分か
-    ///    TODO: zeroExに問い合わせる
+    ///  - makerが十分な残高を持っているか, allowanceが十分か zeroExに問い合わせる
     private async validateOrders(orders: SignedLimitOrder[]) {
-        // const limitOrders = []
-        // const signatures = []
-
-        // for (const order of orders) {
-        //     const { signature, ...limitOrder } = order
-        //     limitOrders.push(limitOrder)
-        //     signatures.push(signature)
-        // }
-        // const { orderInfos, actualFillableTakerTokenAmounts, isValidSigs } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures)
-        const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS);
+        const limitOrders = [];
+        const signatures = [];
 
         for (const order of orders) {
-            if (Number(order.expiry) <= expiryTime) {
-                throw new Error(`Order expired: ${order.expiry}`);
-            }
-            if (order.chainId !== CHAIN_ID) {
-                throw new Error(`Order chainId is invalid: ${order.chainId}`);
-            }
-            // if (order.verifyingContract.toLowerCase() !== EXCHANGE_RPOXY.toLowerCase()) {
-            //     throw new Error(`Order verifyingContract is invalid: ${order.verifyingContract}`);
-            // }
-            if (order.signature.signatureType !== SignatureType.EthSign) {
-                throw new Error(`signatureType ${order.signature.signatureType} is not supported`);
-            }
-            const signer = order.maker;
-            const { signatureType, v, r, s } = order.signature;
-            const hash = new LimitOrder(order).getHash();
-            // if (utils.recoverAddress(hash, { v, r, s }) !== signer) {
-            //     throw new Error(`Order signature is invalid: hash ${hash} and (type,v,r,s) ${signatureType}, ${v}, ${r}, ${s}`);
-            // }
+            const { signature, ...limitOrder } = order;
+            limitOrders.push(limitOrder);
+            signatures.push(signature);
         }
+        const { orderInfos, actualFillableTakerTokenAmounts, isSignatureValids } =
+            await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
+        isSignatureValids.forEach((isValidSig: Boolean) => {
+            if (!isValidSig) {
+                throw new Error('Invalid signature');
+            }
+        });
+        // const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS);
+
+        // for (const order of orders) {
+        //     if (Number(order.expiry) <= expiryTime) {
+        //         throw new Error(`Order expired: ${order.expiry}`);
+        //     }
+        //     if (order.chainId !== CHAIN_ID) {
+        //         throw new Error(`Order chainId is invalid: ${order.chainId}`);
+        //     }
+        //     // if (order.verifyingContract.toLowerCase() !== EXCHANGE_RPOXY.toLowerCase()) {
+        //     //     throw new Error(`Order verifyingContract is invalid: ${order.verifyingContract}`);
+        //     // }
+        //     if (order.signature.signatureType !== SignatureType.EthSign) {
+        //         throw new Error(`signatureType ${order.signature.signatureType} is not supported`);
+        //     }
+        //     const signer = order.maker;
+        //     const { signatureType, v, r, s } = order.signature;
+        /// NOTE: somehoow can't recovery signer from signature
+        // const hash = new LimitOrder(order).getHash();
+        // if (utils.recoverAddress(hash, { v, r, s }) !== signer) {
+        //     throw new Error(`Order signature is invalid: hash ${hash} and (type,v,r,s) ${signatureType}, ${v}, ${r}, ${s}`);
+        // }
     }
 }
