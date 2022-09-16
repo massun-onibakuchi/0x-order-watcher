@@ -1,12 +1,13 @@
 import express from 'express';
 import { ethers } from 'ethers';
 
-import { LimitOrderFilledEventArgs, OrderCanceledEventArgs, SignedLimitOrder } from './types';
+import { LimitOrderFilledEventArgs, OrderCanceledEventArgs } from './types';
 import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
-import { RPC_URL, EXCHANGE_RPOXY, PORT, SRA_ORDER_EXPIRATION_BUFFER_SECONDS, LOG_LEVEL } from './config';
+import { RPC_URL, EXCHANGE_RPOXY, PORT, SRA_ORDER_EXPIRATION_BUFFER_SECONDS, LOG_LEVEL, CHAIN_ID } from './config';
 
+// creates an Express application.
 const app = express();
 
 app.use(express.json());
@@ -15,48 +16,60 @@ app.use(express.urlencoded({ extended: true }));
 // NOTE: WebSocketProvider : https://docs.ethers.io/v5/api/providers/ws-provider/
 // const wsProvider = new ethers.providers.WebSocketProvider(WS_RPC_URL);
 
-const provider = new ethers.providers.StaticJsonRpcProvider(RPC_URL);
-const EXHANGE_PROXY_ABI = [
-    // "event Transfer(address indexed src, address indexed dst, uint val)", // For testing purposes
+// Zero-Ex INativeOrdersEvents
+const abi = [
     'event OrderCancelled(bytes32 orderHash, address maker)',
     'event LimitOrderFilled(bytes32 orderHash, address maker, address taker, address feeRecipient, address makerToken, address takerToken, uint128 takerTokenFilledAmount, uint128 makerTokenFilledAmount, uint128 takerTokenFeeFilledAmount, uint256 protocolFeePaid, bytes32 pool)',
 ];
-const zeroEx = new ethers.Contract(EXCHANGE_RPOXY, new ethers.utils.Interface(EXHANGE_PROXY_ABI), provider);
+const zeroEx = new ethers.Contract(EXCHANGE_RPOXY, abi);
+const provider = new ethers.providers.StaticJsonRpcProvider(RPC_URL);
 
 let orderWatcher: OrderWatcher;
 if (require.main === module) {
     (async () => {
-        const connection = await getDBConnectionAsync();
-        orderWatcher = new OrderWatcher(connection);
-
-        logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
+        const { chainId } = await provider.getNetwork();
+        if (chainId !== CHAIN_ID) {
+            throw new Error(`Invalid ChainId: ${CHAIN_ID}`);
+        }
         if (!ethers.utils.isAddress(EXCHANGE_RPOXY)) {
             throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_RPOXY}`);
         }
+
+        // db is shared among 0x-api and 0x-order-watcher
+        const connection = await getDBConnectionAsync();
+        orderWatcher = new OrderWatcher(connection, provider);
+
+        logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
         logger.info('OrderWatcher is ready. LogLevel: ' + LOG_LEVEL);
     })().catch((err) => console.error(err.stack));
 }
 
+// NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Filter
+// NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Log
+// NOTE: https://docs.ethers.io/v5/concepts/events/#events--filters
+// subscribe LimitOrderFilled events from ZeroEx contract
 const orderFilledEventFilter = zeroEx.filters.LimitOrderFilled();
 provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
 
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
-        logger.debug('filledOrderEvent :>> ', filledOrderEvent);
+        logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     }, filledOrderEvent);
 });
 
+// subscribe OrderCancelled events from ZeroEx contract
 const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
 provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
 
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
-        logger.debug('canceledOrderEvent :>> ', canceledOrderEvent);
+        logger.debug('canceledOrderEvent: orderHash ', canceledOrderEvent);
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
     }, canceledOrderEvent);
 });
 
+// periodically remove expired orders from DB
 const timerId = setInterval(async () => {
     logger.debug('start syncing unfilled orders...');
     try {
@@ -70,17 +83,17 @@ app.post('/ping', function (req, res) {
     res.json({ msg: 'pong, Got a POST request' });
 });
 
-app.post('/orders', function (req: express.Request, res) {
-    logger.debug(req.body);
+// receive POST request from 0x-api `POST orderbook/v1/order`.
+app.post('/orders', async function (req: express.Request, res) {
     try {
-        validateOrders(req.body);
+        logger.debug(req.body);
+        // save orders to DB
+        await orderWatcher.postOrdersAsync(req.body);
+        res.status(200).json();
     } catch (err) {
-        res.status(500).json();
-        logger.info(err);
-        return;
+        logger.error(err);
+        res.status(500).json({ error: err.message });
     }
-    orderWatcher.postOrdersAsync(req.body);
-    res.status(200).json();
 });
 
 app.listen(PORT, () => console.log(`app listening on port ${PORT} !`));
@@ -96,15 +109,3 @@ process.on('unhandledRejection', (err) => {
         logger.error(err);
     }
 });
-
-function validateOrders(orders: SignedLimitOrder[]) {
-    // orderが有効化どうかをチェックする
-    // - 署名が正しいか
-    // - 有効期限が切れていないか
-    // - makerが十分な残高を持っているか
-    // - verifyingContractが正しいZeroExProxyのアドレスか
-    const ok = true;
-    if (!ok) {
-        throw new Error('Invalid order: Reason');
-    }
-}
