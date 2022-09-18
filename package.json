@@ -1,6 +1,6 @@
 {
   "name": "0x-order-watcher",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "0x Watcher",
   "author": "0xbakuchi",
   "scripts": {
