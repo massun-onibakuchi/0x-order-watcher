@@ -40,7 +40,7 @@ export const HTTP_HEADERS_TIMEOUT = 77 * 1000;
 
 export const DEFAULT_CHAIN_ID: ChainId = ChainId.Ganache;
 
-export const CHAIN_ID: ChainId = DEFAULT_CHAIN_ID;
+export const CHAIN_ID: ChainId = Number(process.env.CHAIN_ID) ?? DEFAULT_CHAIN_ID;
 
 export const DEFAULT_LOCAL_WS_RPC_URL = 'wss://localhost:8545';
 

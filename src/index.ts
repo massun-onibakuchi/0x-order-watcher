@@ -29,7 +29,7 @@ if (require.main === module) {
     (async () => {
         const { chainId } = await provider.getNetwork();
         if (chainId !== CHAIN_ID) {
-            throw new Error(`Invalid ChainId: ${CHAIN_ID}`);
+            throw new Error(`Invalid ChainId: ${CHAIN_ID}!= ${chainId}`);
         }
         if (!ethers.utils.isAddress(EXCHANGE_RPOXY)) {
             throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_RPOXY}`);
@@ -41,7 +41,7 @@ if (require.main === module) {
 
         logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
         logger.info('OrderWatcher is ready. LogLevel: ' + LOG_LEVEL);
-    })().catch((err) => console.error(err.stack));
+    })()
 }
 
 // NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Filter
@@ -53,6 +53,18 @@ provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
 
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
+        // csvのファイルに書き込んでいく
+        /* 
+            次のデータを書き込む
+            orderHash:
+            maker:
+            taker:
+            makerToken:
+            takerToken:
+            takerTokenFilledAmount:
+            makerTokenFilledAmount:
+            takerTokenFeeFilledAmount:
+         */
         logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     }, filledOrderEvent);
