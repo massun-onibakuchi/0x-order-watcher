@@ -5,7 +5,7 @@ import { LimitOrderFilledEventArgs, OrderCanceledEventArgs } from './types';
 import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
-import { RPC_URL, EXCHANGE_RPOXY, PORT, SRA_ORDER_EXPIRATION_BUFFER_SECONDS, LOG_LEVEL, CHAIN_ID } from './config';
+import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID } from './config';
 
 // creates an Express application.
 const app = express();
@@ -89,7 +89,7 @@ const timerId = setInterval(async () => {
     } catch (error) {
         logger.error(error);
     }
-}, SRA_ORDER_EXPIRATION_BUFFER_SECONDS * 2000);
+}, SYNC_INTERVAL);
 
 app.post('/ping', function (req, res) {
     res.json({ msg: 'pong, Got a POST request' });
