@@ -5,7 +5,13 @@ import { LimitOrderFilledEventArgs, OrderCanceledEventArgs } from './types';
 import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
+
 import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID } from './config';
+import * as fs from 'fs';
+
+// the path of log file
+const outputFilepath = '../log/event_log.csv';
+var date = new Date();
 
 // creates an Express application.
 const app = express();
@@ -41,7 +47,7 @@ if (require.main === module) {
 
         logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
         logger.info('OrderWatcher is ready. LogLevel: ' + LOG_LEVEL);
-    })()
+    })();
 }
 
 // NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Filter
@@ -64,7 +70,37 @@ provider.on(orderFilledEventFilter, (log) => {
             takerTokenFilledAmount:
             makerTokenFilledAmount:
             takerTokenFeeFilledAmount:
-         */
+        */
+        fs.appendFile(
+            outputFilepath,
+            'GMT\t' +
+                date.toUTCString() +
+                '\norderHash\t' +
+                filledOrderEvent.orderHash +
+                '\nmaker\t' +
+                filledOrderEvent.maker +
+                '\ntaker\t' +
+                filledOrderEvent.taker +
+                '\nfeeRecipient\t' +
+                filledOrderEvent.feeRecipient +
+                '\nmakerToken\t' +
+                filledOrderEvent.makerToken +
+                '\ntakerToken\t' +
+                filledOrderEvent.takerToken +
+                '\ntakerTokenFilledAmount\t' +
+                filledOrderEvent.takerTokenFeeFilledAmount +
+                '\nmakerTokenFilledAmount\t' +
+                filledOrderEvent.makerTokenFilledAmount +
+                '\ntakerTokenFeeFilledAmount\t' +
+                filledOrderEvent.takerTokenFeeFilledAmount +
+                '\n\n',
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                    throw err;
+                }
+            },
+        );
         logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     }, filledOrderEvent);
