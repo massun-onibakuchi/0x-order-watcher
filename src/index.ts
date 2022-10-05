@@ -11,6 +11,8 @@ import * as fs from 'fs';
 
 // the path of log file
 const outputFilepath = '../log/event_log.csv';
+
+// get time
 var date = new Date();
 
 // creates an Express application.
@@ -59,45 +61,41 @@ provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
 
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
-        // csvのファイルに書き込んでいく
-        /* 
-            次のデータを書き込む
-            orderHash:
-            maker:
-            taker:
-            makerToken:
-            takerToken:
-            takerTokenFilledAmount:
-            makerTokenFilledAmount:
-            takerTokenFeeFilledAmount:
-        */
         fs.appendFile(
             outputFilepath,
-            'GMT\t' +
-                date.toUTCString() +
-                '\norderHash\t' +
+            date.getUTCFullYear() +
+                '-' +
+                date.getUTCMonth() +
+                '-' +
+                date.getUTCDay() +
+                '-' +
+                date.getUTCHours() +
+                ':' +
+                date.getUTCMinutes() +
+                ':' +
+                date.getUTCSeconds() +
+                ',success,' +
                 filledOrderEvent.orderHash +
-                '\nmaker\t' +
+                ',' +
                 filledOrderEvent.maker +
-                '\ntaker\t' +
+                ',' +
                 filledOrderEvent.taker +
-                '\nfeeRecipient\t' +
+                ',' +
                 filledOrderEvent.feeRecipient +
-                '\nmakerToken\t' +
+                ',' +
                 filledOrderEvent.makerToken +
-                '\ntakerToken\t' +
+                ',' +
                 filledOrderEvent.takerToken +
-                '\ntakerTokenFilledAmount\t' +
+                ',' +
                 filledOrderEvent.takerTokenFeeFilledAmount +
-                '\nmakerTokenFilledAmount\t' +
+                ',' +
                 filledOrderEvent.makerTokenFilledAmount +
-                '\ntakerTokenFeeFilledAmount\t' +
+                ',' +
                 filledOrderEvent.takerTokenFeeFilledAmount +
-                '\n\n',
+                '\n',
             (err) => {
                 if (err) {
                     logger.error(err);
-                    throw err;
                 }
             },
         );
@@ -112,7 +110,30 @@ provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
 
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
-        logger.debug('canceledOrderEvent: orderHash ', canceledOrderEvent);
+        fs.appendFile(
+            outputFilepath,
+            date.getUTCFullYear() +
+                '-' +
+                date.getUTCMonth() +
+                '-' +
+                date.getUTCDay() +
+                '-' +
+                date.getUTCHours() +
+                ':' +
+                date.getUTCMinutes() +
+                ':' +
+                date.getUTCSeconds() +
+                ',false,' +
+                canceledOrderEvent.orderHash +
+                ',' +
+                canceledOrderEvent.maker +
+                '\n',
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
+            },
+        );
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
     }, canceledOrderEvent);
 });
