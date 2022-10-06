@@ -13,7 +13,7 @@ import * as fs from 'fs';
 const outputFilepath = '../log/event_log.csv';
 
 // get time
-var date = new Date();
+const date = new Date();
 
 // creates an Express application.
 const app = express();
@@ -63,7 +63,8 @@ provider.on(orderFilledEventFilter, (log) => {
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
         fs.appendFile(
             outputFilepath,
-            date.getUTCFullYear() +
+            'filledOrder,' +
+                date.getUTCFullYear() +
                 '-' +
                 date.getUTCMonth() +
                 '-' +
@@ -74,14 +75,12 @@ provider.on(orderFilledEventFilter, (log) => {
                 date.getUTCMinutes() +
                 ':' +
                 date.getUTCSeconds() +
-                ',success,' +
+                ',' +
                 filledOrderEvent.orderHash +
                 ',' +
                 filledOrderEvent.maker +
                 ',' +
                 filledOrderEvent.taker +
-                ',' +
-                filledOrderEvent.feeRecipient +
                 ',' +
                 filledOrderEvent.makerToken +
                 ',' +
@@ -108,11 +107,11 @@ provider.on(orderFilledEventFilter, (log) => {
 const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
 provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
-
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
         fs.appendFile(
             outputFilepath,
-            date.getUTCFullYear() +
+            'canceledOrder,' +
+                date.getUTCFullYear() +
                 '-' +
                 date.getUTCMonth() +
                 '-' +
@@ -123,7 +122,7 @@ provider.on(orderCanceledEventFilter, (log) => {
                 date.getUTCMinutes() +
                 ':' +
                 date.getUTCSeconds() +
-                ',false,' +
+                ',' +
                 canceledOrderEvent.orderHash +
                 ',' +
                 canceledOrderEvent.maker +
@@ -135,6 +134,7 @@ provider.on(orderCanceledEventFilter, (log) => {
             },
         );
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
+        logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
     }, canceledOrderEvent);
 });
 
