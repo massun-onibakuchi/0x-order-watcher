@@ -5,7 +5,15 @@ import { LimitOrderFilledEventArgs, OrderCanceledEventArgs } from './types';
 import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
+
 import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID } from './config';
+import * as fs from 'fs';
+
+// the path of log file
+const outputFilepath = '../log/event_log.csv';
+
+// get time
+const date = new Date();
 
 // creates an Express application.
 const app = express();
@@ -41,7 +49,7 @@ if (require.main === module) {
 
         logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
         logger.info('OrderWatcher is ready. LogLevel: ' + LOG_LEVEL);
-    })()
+    })();
 }
 
 // NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Filter
@@ -53,18 +61,43 @@ provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
 
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
-        // csvのファイルに書き込んでいく
-        /* 
-            次のデータを書き込む
-            orderHash:
-            maker:
-            taker:
-            makerToken:
-            takerToken:
-            takerTokenFilledAmount:
-            makerTokenFilledAmount:
-            takerTokenFeeFilledAmount:
-         */
+        fs.appendFile(
+            outputFilepath,
+            'filledOrder,' +
+                date.getUTCFullYear() +
+                '-' +
+                date.getUTCMonth() +
+                '-' +
+                date.getUTCDay() +
+                '-' +
+                date.getUTCHours() +
+                ':' +
+                date.getUTCMinutes() +
+                ':' +
+                date.getUTCSeconds() +
+                ',' +
+                filledOrderEvent.orderHash +
+                ',' +
+                filledOrderEvent.maker +
+                ',' +
+                filledOrderEvent.taker +
+                ',' +
+                filledOrderEvent.makerToken +
+                ',' +
+                filledOrderEvent.takerToken +
+                ',' +
+                filledOrderEvent.takerTokenFeeFilledAmount +
+                ',' +
+                filledOrderEvent.makerTokenFilledAmount +
+                ',' +
+                filledOrderEvent.takerTokenFeeFilledAmount +
+                '\n',
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
+            },
+        );
         logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     }, filledOrderEvent);
@@ -74,10 +107,34 @@ provider.on(orderFilledEventFilter, (log) => {
 const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
 provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
-
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
-        logger.debug('canceledOrderEvent: orderHash ', canceledOrderEvent);
+        fs.appendFile(
+            outputFilepath,
+            'canceledOrder,' +
+                date.getUTCFullYear() +
+                '-' +
+                date.getUTCMonth() +
+                '-' +
+                date.getUTCDay() +
+                '-' +
+                date.getUTCHours() +
+                ':' +
+                date.getUTCMinutes() +
+                ':' +
+                date.getUTCSeconds() +
+                ',' +
+                canceledOrderEvent.orderHash +
+                ',' +
+                canceledOrderEvent.maker +
+                '\n',
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
+            },
+        );
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
+        logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
     }, canceledOrderEvent);
 });
 
