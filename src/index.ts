@@ -6,15 +6,20 @@ import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
 
-import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID } from './config';
+import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID, LOG_PATH } from './config';
 import * as fs from 'fs';
 
-// the path of log file
-const outputFilepath = '../log/event_log.csv';
-
-// get time
-const date = new Date();
-
+const formatDate = (date: Date) => {
+    return new Intl.DateTimeFormat(undefined, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'UTC',
+    }).format(date);
+};
 // creates an Express application.
 const app = express();
 
@@ -59,22 +64,13 @@ if (require.main === module) {
 const orderFilledEventFilter = zeroEx.filters.LimitOrderFilled();
 provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
-
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
         fs.appendFile(
-            outputFilepath,
+            LOG_PATH,
             'filledOrder,' +
-                date.getUTCFullYear() +
-                '-' +
-                date.getUTCMonth() +
-                '-' +
-                date.getUTCDay() +
-                '-' +
-                date.getUTCHours() +
-                ':' +
-                date.getUTCMinutes() +
-                ':' +
-                date.getUTCSeconds() +
+                log.blockNumber +
+                ',' +
+                formatDate(new Date()) +
                 ',' +
                 filledOrderEvent.orderHash +
                 ',' +
@@ -109,19 +105,11 @@ provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
         fs.appendFile(
-            outputFilepath,
+            LOG_PATH,
             'canceledOrder,' +
-                date.getUTCFullYear() +
-                '-' +
-                date.getUTCMonth() +
-                '-' +
-                date.getUTCDay() +
-                '-' +
-                date.getUTCHours() +
-                ':' +
-                date.getUTCMinutes() +
-                ':' +
-                date.getUTCSeconds() +
+                log.blockNumber +
+                ',' +
+                formatDate(new Date()) +
                 ',' +
                 canceledOrderEvent.orderHash +
                 ',' +
