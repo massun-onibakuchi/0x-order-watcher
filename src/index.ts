@@ -65,6 +65,8 @@ const orderFilledEventFilter = zeroEx.filters.LimitOrderFilled();
 provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
+        // format
+        // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFeeFilledAmount, makerTokenFeeFilledAmount, takerTokenFeeFilledAmount
         fs.appendFile(
             LOG_PATH,
             'filledOrder,' +
@@ -82,7 +84,7 @@ provider.on(orderFilledEventFilter, (log) => {
                 ',' +
                 filledOrderEvent.takerToken +
                 ',' +
-                filledOrderEvent.takerTokenFeeFilledAmount +
+                filledOrderEvent.takerTokenFilledAmount +
                 ',' +
                 filledOrderEvent.makerTokenFilledAmount +
                 ',' +
@@ -104,6 +106,8 @@ const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
 provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
     setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
+        // format
+        // "canceledOrder", date, orderHash, maker
         fs.appendFile(
             LOG_PATH,
             'canceledOrder,' +
