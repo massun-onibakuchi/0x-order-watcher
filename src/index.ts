@@ -47,6 +47,9 @@ if (require.main === module) {
         if (!ethers.utils.isAddress(EXCHANGE_RPOXY)) {
             throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_RPOXY}`);
         }
+        if ((await provider.getCode(EXCHANGE_RPOXY)) == '0x') {
+            throw new Error(`ZeroEx is not deployed: ${EXCHANGE_RPOXY}`);
+        }
 
         // db is shared among 0x-api and 0x-order-watcher
         const connection = await getDBConnectionAsync();
@@ -66,30 +69,14 @@ provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
     setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
         // format
-        // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFeeFilledAmount, makerTokenFeeFilledAmount, takerTokenFeeFilledAmount
+        // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
         fs.appendFile(
             LOG_PATH,
-            'filledOrder,' +
-                log.blockNumber +
-                ',' +
-                formatDate(new Date()) +
-                ',' +
-                filledOrderEvent.orderHash +
-                ',' +
-                filledOrderEvent.maker +
-                ',' +
-                filledOrderEvent.taker +
-                ',' +
-                filledOrderEvent.makerToken +
-                ',' +
-                filledOrderEvent.takerToken +
-                ',' +
-                filledOrderEvent.takerTokenFilledAmount +
-                ',' +
-                filledOrderEvent.makerTokenFilledAmount +
-                ',' +
-                filledOrderEvent.takerTokenFeeFilledAmount +
-                '\n',
+            `filledOrder,${log.blockNumber},${formatDate(new Date())},${filledOrderEvent.orderHash},${
+                filledOrderEvent.maker
+            },${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${
+                filledOrderEvent.takerTokenFilledAmount
+            },${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`,
             (err) => {
                 if (err) {
                     logger.error(err);
@@ -110,15 +97,9 @@ provider.on(orderCanceledEventFilter, (log) => {
         // "canceledOrder", date, orderHash, maker
         fs.appendFile(
             LOG_PATH,
-            'canceledOrder,' +
-                log.blockNumber +
-                ',' +
-                formatDate(new Date()) +
-                ',' +
-                canceledOrderEvent.orderHash +
-                ',' +
-                canceledOrderEvent.maker +
-                '\n',
+            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${canceledOrderEvent.orderHash},${
+                canceledOrderEvent.maker
+            }\n`,
             (err) => {
                 if (err) {
                     logger.error(err);
