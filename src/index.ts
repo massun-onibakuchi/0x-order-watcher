@@ -72,11 +72,7 @@ provider.on(orderFilledEventFilter, (log) => {
         // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
         fs.appendFile(
             LOG_PATH,
-            `filledOrder,${log.blockNumber},${formatDate(new Date())},${filledOrderEvent.orderHash},${
-                filledOrderEvent.maker
-            },${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${
-                filledOrderEvent.takerTokenFilledAmount
-            },${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`,
+            `filledOrder,${log.blockNumber},${formatDate(new Date())},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
@@ -97,9 +93,7 @@ provider.on(orderCanceledEventFilter, (log) => {
         // "canceledOrder", date, orderHash, maker
         fs.appendFile(
             LOG_PATH,
-            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${canceledOrderEvent.orderHash},${
-                canceledOrderEvent.maker
-            }\n`,
+            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
