@@ -6,7 +6,7 @@ import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
 
-import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID, LOG_PATH } from './config';
+import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID, LOG_PATH, POLLING_INTERVAL } from './config';
 import * as fs from 'fs';
 
 const formatDate = (date: Date) => {
@@ -29,13 +29,15 @@ app.use(express.urlencoded({ extended: true }));
 // NOTE: WebSocketProvider : https://docs.ethers.io/v5/api/providers/ws-provider/
 // const wsProvider = new ethers.providers.WebSocketProvider(WS_RPC_URL);
 
-// Zero-Ex INativeOrdersEvents
+// ZeroEx INativeOrdersEvents
 const abi = [
     'event OrderCancelled(bytes32 orderHash, address maker)',
     'event LimitOrderFilled(bytes32 orderHash, address maker, address taker, address feeRecipient, address makerToken, address takerToken, uint128 takerTokenFilledAmount, uint128 makerTokenFilledAmount, uint128 takerTokenFeeFilledAmount, uint256 protocolFeePaid, bytes32 pool)',
 ];
 const zeroEx = new ethers.Contract(EXCHANGE_RPOXY, abi);
 const provider = new ethers.providers.StaticJsonRpcProvider(RPC_URL);
+// Set polling interval
+provider.pollingInterval = POLLING_INTERVAL;
 
 let orderWatcher: OrderWatcher;
 if (require.main === module) {
@@ -72,7 +74,7 @@ provider.on(orderFilledEventFilter, (log) => {
         // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
         fs.appendFile(
             LOG_PATH,
-            `filledOrder,${log.blockNumber},${formatDate(new Date())},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
+            `filledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
@@ -93,7 +95,7 @@ provider.on(orderCanceledEventFilter, (log) => {
         // "canceledOrder", date, orderHash, maker
         fs.appendFile(
             LOG_PATH,
-            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
+            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
