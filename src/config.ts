@@ -79,6 +79,8 @@ export const NATIVE_WRAPPED_TOKEN_SYMBOL = nativeWrappedTokenSymbol(CHAIN_ID);
 
 export const SYNC_INTERVAL: number = Number(process.env.SYNC_INTERVAL) || SRA_ORDER_EXPIRATION_BUFFER_SECONDS * 2000;
 
+export const POLLING_INTERVAL: number = Number(process.env.POLLING_INTERVAL) || 500;
+
 export const DEFAULT_LOG_PATH: string = '../events_log.csv';
 
 export const LOG_PATH: string = process.env.LOG_PATH || DEFAULT_LOG_PATH;
