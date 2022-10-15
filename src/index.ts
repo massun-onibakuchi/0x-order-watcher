@@ -69,12 +69,12 @@ if (require.main === module) {
 const orderFilledEventFilter = zeroEx.filters.LimitOrderFilled();
 provider.on(orderFilledEventFilter, (log) => {
     const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
-    setImmediate(async (filledOrderEvent: LimitOrderFilledEventArgs) => {
+    setImmediate(async (blockNumber, transactionHash, filledOrderEvent: LimitOrderFilledEventArgs) => {
         // format
         // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
         fs.appendFile(
             LOG_PATH,
-            `filledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
+            `filledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
@@ -83,19 +83,19 @@ provider.on(orderFilledEventFilter, (log) => {
         );
         logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
-    }, filledOrderEvent);
+    }, log.blockNumber, log.transactionHash, filledOrderEvent);
 });
 
 // subscribe OrderCancelled events from ZeroEx contract
 const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
 provider.on(orderCanceledEventFilter, (log) => {
     const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
-    setImmediate(async (canceledOrderEvent: OrderCanceledEventArgs) => {
+    setImmediate(async (blockNumber, transactionHash, canceledOrderEvent: OrderCanceledEventArgs) => {
         // format
         // "canceledOrder", date, orderHash, maker
         fs.appendFile(
             LOG_PATH,
-            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
+            `canceledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
@@ -104,7 +104,7 @@ provider.on(orderCanceledEventFilter, (log) => {
         );
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
         logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
-    }, canceledOrderEvent);
+    }, log.blockNumber, log.transactionHash, canceledOrderEvent);
 });
 
 // periodically remove expired orders from DB
