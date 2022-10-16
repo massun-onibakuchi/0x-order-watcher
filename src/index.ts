@@ -6,7 +6,16 @@ import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
 
-import { RPC_URL, EXCHANGE_RPOXY, PORT, SYNC_INTERVAL, LOG_LEVEL, CHAIN_ID, LOG_PATH, POLLING_INTERVAL } from './config';
+import {
+    RPC_URL,
+    EXCHANGE_RPOXY,
+    PORT,
+    SYNC_INTERVAL,
+    LOG_LEVEL,
+    CHAIN_ID,
+    LOG_PATH,
+    POLLING_INTERVAL,
+} from './config';
 import * as fs from 'fs';
 
 const formatDate = (date: Date) => {
@@ -26,86 +35,15 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// NOTE: WebSocketProvider : https://docs.ethers.io/v5/api/providers/ws-provider/
-// const wsProvider = new ethers.providers.WebSocketProvider(WS_RPC_URL);
-
-// ZeroEx INativeOrdersEvents
-const abi = [
-    'event OrderCancelled(bytes32 orderHash, address maker)',
-    'event LimitOrderFilled(bytes32 orderHash, address maker, address taker, address feeRecipient, address makerToken, address takerToken, uint128 takerTokenFilledAmount, uint128 makerTokenFilledAmount, uint128 takerTokenFeeFilledAmount, uint256 protocolFeePaid, bytes32 pool)',
-];
-const zeroEx = new ethers.Contract(EXCHANGE_RPOXY, abi);
-const provider = new ethers.providers.StaticJsonRpcProvider(RPC_URL);
-// Set polling interval
-provider.pollingInterval = POLLING_INTERVAL;
-
 let orderWatcher: OrderWatcher;
 if (require.main === module) {
     (async () => {
-        const { chainId } = await provider.getNetwork();
-        if (chainId !== CHAIN_ID) {
-            throw new Error(`Invalid ChainId: ${CHAIN_ID}!= ${chainId}`);
-        }
-        if (!ethers.utils.isAddress(EXCHANGE_RPOXY)) {
-            throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_RPOXY}`);
-        }
-        if ((await provider.getCode(EXCHANGE_RPOXY)) == '0x') {
-            throw new Error(`ZeroEx is not deployed: ${EXCHANGE_RPOXY}`);
-        }
-
-        // db is shared among 0x-api and 0x-order-watcher
-        const connection = await getDBConnectionAsync();
-        orderWatcher = new OrderWatcher(connection, provider);
-
-        logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
-        logger.info('OrderWatcher is ready. LogLevel: ' + LOG_LEVEL);
+        const provider = new ethers.providers.StaticJsonRpcProvider(RPC_URL);
+        orderWatcher = await createOrderWatcher(provider, logger);
     })();
 }
 
-// NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Filter
-// NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Log
-// NOTE: https://docs.ethers.io/v5/concepts/events/#events--filters
-// subscribe LimitOrderFilled events from ZeroEx contract
-const orderFilledEventFilter = zeroEx.filters.LimitOrderFilled();
-provider.on(orderFilledEventFilter, (log) => {
-    const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
-    setImmediate(async (blockNumber, transactionHash, filledOrderEvent: LimitOrderFilledEventArgs) => {
-        // format
-        // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
-        fs.appendFile(
-            LOG_PATH,
-            `filledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
-            (err) => {
-                if (err) {
-                    logger.error(err);
-                }
-            },
-        );
-        logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
-        await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
-    }, log.blockNumber, log.transactionHash, filledOrderEvent);
-});
-
-// subscribe OrderCancelled events from ZeroEx contract
-const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
-provider.on(orderCanceledEventFilter, (log) => {
-    const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
-    setImmediate(async (blockNumber, transactionHash, canceledOrderEvent: OrderCanceledEventArgs) => {
-        // format
-        // "canceledOrder", date, orderHash, maker
-        fs.appendFile(
-            LOG_PATH,
-            `canceledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
-            (err) => {
-                if (err) {
-                    logger.error(err);
-                }
-            },
-        );
-        await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
-        logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
-    }, log.blockNumber, log.transactionHash, canceledOrderEvent);
-});
+const counts = new Map<string, number>();
 
 // periodically remove expired orders from DB
 const timerId = setInterval(async () => {
@@ -147,3 +85,106 @@ process.on('unhandledRejection', (err) => {
         logger.error(err);
     }
 });
+
+async function createOrderWatcher(provider: ethers.providers.JsonRpcProvider, logger: any) {
+    const { chainId } = await provider.getNetwork();
+    if (chainId !== CHAIN_ID) {
+        throw new Error(`Invalid ChainId: ${CHAIN_ID}!= ${chainId}`);
+    }
+    if (!ethers.utils.isAddress(EXCHANGE_RPOXY)) {
+        throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_RPOXY}`);
+    }
+    if ((await provider.getCode(EXCHANGE_RPOXY)) == '0x') {
+        throw new Error(`ZeroEx is not deployed: ${EXCHANGE_RPOXY}`);
+    }
+
+    // db is shared among 0x-api and 0x-order-watcher
+    const connection = await getDBConnectionAsync();
+    const orderWatcher = new OrderWatcher(connection, provider);
+
+    logger.info(`${RPC_URL} is connected. ZeroEx: ${EXCHANGE_RPOXY}`);
+    logger.info('OrderWatcher is ready. LogLevel: ' + LOG_LEVEL);
+
+    // ZeroEx INativeOrdersEvents
+    const abi = [
+        'event OrderCancelled(bytes32 orderHash, address maker)',
+        'event LimitOrderFilled(bytes32 orderHash, address maker, address taker, address feeRecipient, address makerToken, address takerToken, uint128 takerTokenFilledAmount, uint128 makerTokenFilledAmount, uint128 takerTokenFeeFilledAmount, uint256 protocolFeePaid, bytes32 pool)',
+    ];
+    const zeroEx = new ethers.Contract(EXCHANGE_RPOXY, abi);
+
+    // Set polling interval
+    provider.pollingInterval = POLLING_INTERVAL;
+
+    // NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Filter
+    // NOTE: https://docs.ethers.io/v5/api/providers/types/#providers-Log
+    // NOTE: https://docs.ethers.io/v5/concepts/events/#events--filters
+    // subscribe LimitOrderFilled events from ZeroEx contract
+    const orderFilledEventFilter = zeroEx.filters.LimitOrderFilled();
+    provider.on(orderFilledEventFilter, (log) => {
+        const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
+        setImmediate(
+            async (blockNumber, transactionHash, filledOrderEvent: LimitOrderFilledEventArgs) => {
+                const n = counts.get(filledOrderEvent.orderHash);
+                if (n == undefined) {
+                    counts.set(filledOrderEvent.orderHash, 1);
+                }
+                if (n != undefined) {
+                    counts.set(filledOrderEvent.orderHash, n + 1);
+                    logger.warn('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash + ' ' + n);
+                }
+                // format
+                // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
+                fs.appendFile(
+                    LOG_PATH,
+                    `filledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
+                    (err) => {
+                        if (err) {
+                            logger.error(err);
+                        }
+                    },
+                );
+                logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
+                await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
+            },
+            log.blockNumber,
+            log.transactionHash,
+            filledOrderEvent,
+        );
+    });
+
+    // subscribe OrderCancelled events from ZeroEx contract
+    const orderCanceledEventFilter = zeroEx.filters.OrderCancelled();
+    provider.on(orderCanceledEventFilter, (log) => {
+        const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
+        setImmediate(
+            async (blockNumber, transactionHash, canceledOrderEvent: OrderCanceledEventArgs) => {
+                const n = counts.get(canceledOrderEvent.orderHash);
+                if (n == undefined) {
+                    counts.set(canceledOrderEvent.orderHash, 1);
+                }
+                if (n != undefined) {
+                    counts.set(canceledOrderEvent.orderHash, n + 1);
+                    logger.warn('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash + ' ' + n);
+                }
+                // format
+                // "canceledOrder", date, orderHash, maker
+                fs.appendFile(
+                    LOG_PATH,
+                    `canceledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
+                    (err) => {
+                        if (err) {
+                            logger.error(err);
+                        }
+                    },
+                );
+                await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
+                logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
+            },
+            log.blockNumber,
+            log.transactionHash,
+            canceledOrderEvent,
+        );
+    });
+
+    return orderWatcher;
+}
