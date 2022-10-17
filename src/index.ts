@@ -43,8 +43,6 @@ if (require.main === module) {
     })();
 }
 
-const counts = new Map<string, number>();
-
 // periodically remove expired orders from DB
 const timerId = setInterval(async () => {
     logger.debug('start syncing unfilled orders...');
@@ -124,14 +122,6 @@ async function createOrderWatcher(provider: ethers.providers.JsonRpcProvider, lo
         const filledOrderEvent = zeroEx.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
         setImmediate(
             async (blockNumber, transactionHash, filledOrderEvent: LimitOrderFilledEventArgs) => {
-                const n = counts.get(filledOrderEvent.orderHash);
-                if (n == undefined) {
-                    counts.set(filledOrderEvent.orderHash, 1);
-                }
-                if (n != undefined) {
-                    counts.set(filledOrderEvent.orderHash, n + 1);
-                    logger.warn('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash + ' ' + n);
-                }
                 // format
                 // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
                 fs.appendFile(
@@ -158,14 +148,6 @@ async function createOrderWatcher(provider: ethers.providers.JsonRpcProvider, lo
         const canceledOrderEvent = zeroEx.interface.parseLog(log).args as any as OrderCanceledEventArgs;
         setImmediate(
             async (blockNumber, transactionHash, canceledOrderEvent: OrderCanceledEventArgs) => {
-                const n = counts.get(canceledOrderEvent.orderHash);
-                if (n == undefined) {
-                    counts.set(canceledOrderEvent.orderHash, 1);
-                }
-                if (n != undefined) {
-                    counts.set(canceledOrderEvent.orderHash, n + 1);
-                    logger.warn('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash + ' ' + n);
-                }
                 // format
                 // "canceledOrder", date, orderHash, maker
                 fs.appendFile(
