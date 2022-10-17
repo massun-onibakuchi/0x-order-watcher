@@ -38,11 +38,11 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev assume schema has already been validated.
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
-        await this.validateOrders(orders);
+        const validOrders = await this.filterFreshOrders(orders);
 
         // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
         await this._connection.getRepository(SignedOrderV4Entity).save(
-            orders.map((order) => {
+            validOrders.map((order) => {
                 const limitOrder = new LimitOrder(order);
                 return orderUtils.serializeOrder({
                     order,
@@ -67,8 +67,7 @@ export class OrderWatcher implements OrderWatcherInterface {
             BN(event.takerTokenFilledAmount),
         );
         if (remainingFillableTakerAmount.isZero()) {
-            // Deletes entities by a given criteria.  Does not check if entity exist in the database.
-            await this._connection.getRepository(SignedOrderV4Entity).delete(event.orderHash);
+            await this._connection.getRepository(SignedOrderV4Entity).remove(signedOrdersEntity);
         } else {
             signedOrdersEntity.remainingFillableTakerAmount = remainingFillableTakerAmount.toString();
             await this._connection.getRepository(SignedOrderV4Entity).update(event.orderHash, signedOrdersEntity);
@@ -144,43 +143,46 @@ export class OrderWatcher implements OrderWatcherInterface {
     ///  - verifyingContractが正しいZeroExProxyのアドレスか
     ///  - 署名が正しいか
     ///  - makerが十分な残高を持っているか, allowanceが十分か zeroExに問い合わせる
-    private async validateOrders(orders: SignedLimitOrder[]) {
+    private async filterFreshOrders(orders: SignedLimitOrder[]) {
         const limitOrders = [];
         const signatures = [];
+        const validOrders: SignedLimitOrder[] = [];
 
         for (const order of orders) {
             const { signature, ...limitOrder } = order;
             limitOrders.push(limitOrder);
             signatures.push(signature);
         }
-        const { orderInfos, actualFillableTakerTokenAmounts, isSignatureValids } =
-            await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
-        isSignatureValids.forEach((isValidSig: Boolean) => {
+        const {
+            orderInfos,
+            actualFillableTakerTokenAmounts,
+            isSignatureValids,
+        }: {
+            orderInfos: {
+                orderHash: string;
+                status: number;
+                takerTokenFilledAmount: BigNumber;
+            }[];
+            actualFillableTakerTokenAmounts: BigNumber[];
+            isSignatureValids: boolean[];
+        } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
+        // NOTE: XXX
+        // order-watcherにbugある可能性
+        // eventsとtrades.csvで同じorderHashが繰り返し出てくる
+        // TODO: order-watcher動くか？
+        // TODO: amaterasu_clientにcanceled_orderを管理するキューを作ったので機能しているか確認する
+        // TODO: 約定した注文をキューに入れる
+        isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
                 throw new Error('Invalid signature');
             }
+            if (
+                actualFillableTakerTokenAmounts[index].gt(0) &&
+                (orderInfos[index].status === 1 || orderInfos[index].status === 2)
+            ) {
+                validOrders.push(orders[index]);
+            }
         });
-        // const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS);
-
-        // for (const order of orders) {
-        //     if (Number(order.expiry) <= expiryTime) {
-        //         throw new Error(`Order expired: ${order.expiry}`);
-        //     }
-        //     if (order.chainId !== CHAIN_ID) {
-        //         throw new Error(`Order chainId is invalid: ${order.chainId}`);
-        //     }
-        //     // if (order.verifyingContract.toLowerCase() !== EXCHANGE_RPOXY.toLowerCase()) {
-        //     //     throw new Error(`Order verifyingContract is invalid: ${order.verifyingContract}`);
-        //     // }
-        //     if (order.signature.signatureType !== SignatureType.EthSign) {
-        //         throw new Error(`signatureType ${order.signature.signatureType} is not supported`);
-        //     }
-        //     const signer = order.maker;
-        //     const { signatureType, v, r, s } = order.signature;
-        /// NOTE: somehoow can't recovery signer from signature
-        // const hash = new LimitOrder(order).getHash();
-        // if (utils.recoverAddress(hash, { v, r, s }) !== signer) {
-        //     throw new Error(`Order signature is invalid: hash ${hash} and (type,v,r,s) ${signatureType}, ${v}, ${r}, ${s}`);
-        // }
+        return validOrders;
     }
 }
