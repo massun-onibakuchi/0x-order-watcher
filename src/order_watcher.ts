@@ -17,8 +17,6 @@ export interface OrderWatcherInterface {
     syncFreshOrders(): Promise<void>;
 }
 
-const BN = BigNumber.from;
-
 enum OrderStatus {
     INVALID = 0,
     FILLABLE = 1,
@@ -45,10 +43,25 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev assume schema has already been validated.
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
-        const [validOrders, invalidOrders] = await this._filterFreshOrders(orders);
+        const [validOrders, invalidOrders, canceledOrders, expiredOrders, filledOrders] = await this._filterFreshOrders(
+            orders,
+        ).catch((e) => {
+            logger.error(`error:`, e);
+            throw e;
+        });
 
         if (invalidOrders.length > 0) {
-            throw new Error(`invalid orders: ${JSON.stringify(invalidOrders)}`);
+            throw new Error(`invalid orders ${JSON.stringify(invalidOrders)}`);
+        }
+        if (canceledOrders.length > 0) {
+            // logger.warn(`canceled orders ${JSON.stringify(canceledOrders)}`);
+            throw new Error(`canceled orders ${JSON.stringify(canceledOrders)}`);
+        }
+        if (expiredOrders.length > 0) {
+            throw new Error(`expired orders ${JSON.stringify(expiredOrders)}`);
+        }
+        if (filledOrders.length > 0) {
+            throw new Error(`already fully filled orders ${JSON.stringify(filledOrders)}`);
         }
         // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
         await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
@@ -79,17 +92,17 @@ export class OrderWatcher implements OrderWatcherInterface {
     }
 
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
-        const [validOrders, invalidOrders] = await this._filterFreshOrders(
-            orderEntities.map((order) => orderUtils.deserializeOrder(order as any)),
-        );
+        const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
+            await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
         if (validOrders.length > 0) {
             await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
             logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
-        if (invalidOrders.length > 0) {
+        const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
+        if (ordersRemove.length > 0) {
             await this._connection
                 .getRepository(SignedOrderV4Entity)
-                .delete(invalidOrders.map((order) => order.hash as any));
+                .delete(ordersRemove.map((order) => order.hash as any));
             logger.info(`remove orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
     }
@@ -105,6 +118,9 @@ export class OrderWatcher implements OrderWatcherInterface {
         const signatures = [];
         const validOrderEntities: SignedOrderV4Entity[] = [];
         const invalidOrderEntities: SignedOrderV4Entity[] = [];
+        const filledOrderEntities: SignedOrderV4Entity[] = [];
+        const canceledOrderEntities: SignedOrderV4Entity[] = [];
+        const expiredOrderEntities: SignedOrderV4Entity[] = [];
 
         // split orders into limitOrders and signatures
         for (const order of orders) {
@@ -121,6 +137,12 @@ export class OrderWatcher implements OrderWatcherInterface {
         }
 
         // query orders status
+        /// @param orders The limit orders.
+        /// @param signatures The order signatures.
+        /// @return orderInfos Info about the orders.
+        /// @return actualFillableTakerTokenAmounts How much of each order is fillable
+        ///         based on maker funds, in taker tokens.
+        /// @return isSignatureValids Whether each signature is valid for the order.
         const {
             orderInfos,
             actualFillableTakerTokenAmounts,
@@ -139,28 +161,55 @@ export class OrderWatcher implements OrderWatcherInterface {
             if (!isValidSig) {
                 throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
             }
+            const entity = orderUtils.serializeOrder({
+                order: orders[index],
+                metaData: {
+                    orderHash: orderInfos[index].orderHash,
+                    remainingFillableTakerAmount: actualFillableTakerTokenAmounts[index] as any,
+                },
+            });
             if (actualFillableTakerTokenAmounts[index].gt(0) && orderInfos[index].status === OrderStatus.FILLABLE) {
-                validOrderEntities.push(
-                    orderUtils.serializeOrder({
-                        order: orders[index],
-                        metaData: {
-                            orderHash: orderInfos[index].orderHash,
-                            remainingFillableTakerAmount: actualFillableTakerTokenAmounts[index] as any,
-                        },
-                    }),
+                validOrderEntities.push(entity);
+            }
+
+            // TODO: switch分にする??
+            if (
+                orderInfos[index].status === OrderStatus.INVALID ||
+                (actualFillableTakerTokenAmounts[index].isZero() && orderInfos[index].status === OrderStatus.FILLABLE)
+            ) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
+                        OrderStatus[orderInfos[index].status]
+                    }`,
                 );
-            } else {
-                invalidOrderEntities.push(
-                    orderUtils.serializeOrder({
-                        order: orders[index],
-                        metaData: {
-                            orderHash: orderInfos[index].orderHash,
-                            remainingFillableTakerAmount: BN(0) as any,
-                        },
-                    }),
+                invalidOrderEntities.push(entity);
+            } else if (orderInfos[index].status === OrderStatus.FILLED) {
+                logger.info(
+                    `order is filled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]}`,
                 );
+                filledOrderEntities.push(entity);
+            } else if (orderInfos[index].status === OrderStatus.CANCELLED) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
+                        OrderStatus[orderInfos[index].status]
+                    }`,
+                );
+                canceledOrderEntities.push(entity);
+            } else if (orderInfos[index].status === OrderStatus.EXPIRED) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
+                        OrderStatus[orderInfos[index].status]
+                    }`,
+                );
+                expiredOrderEntities.push(entity);
             }
         });
-        return [validOrderEntities, invalidOrderEntities];
+        return [
+            validOrderEntities,
+            invalidOrderEntities,
+            canceledOrderEntities,
+            expiredOrderEntities,
+            filledOrderEntities,
+        ];
     }
 }

@@ -19,7 +19,7 @@ export interface Integrator {
 export type IntegratorsAcl = Integrator[];
 
 // Log level for pino.js
-export const LOG_LEVEL: string = process.env.LOG_LEVEL ?? 'info';
+export const LOG_LEVEL: string = process.env.LOG_LEVEL?.toLowerCase() ?? 'info';
 
 export const DEFAULT_LOGGER_INCLUDE_TIMESTAMP = true;
 
