@@ -1,14 +1,14 @@
-import { LimitOrder } from '@0x/protocol-utils';
-import { Connection, In, LessThanOrEqual, MoreThan } from 'typeorm';
-import { BigNumber, providers, ethers } from 'ethers';
+import { Connection, In } from 'typeorm';
+import { providers, ethers, BigNumber } from 'ethers';
 
 import { orderUtils } from './utils/order_utils';
 import { LimitOrderFilledEventArgs, SignedLimitOrder } from './types';
-import { EXCHANGE_RPOXY, SRA_ORDER_EXPIRATION_BUFFER_SECONDS, SYNC_INTERVAL } from './config';
+import { EXCHANGE_RPOXY } from './config';
 
 import { SignedOrderV4Entity } from './entities';
 import { logger } from './logger';
 import NativeOrdersFeature from './abi/NativeOrdersFeature.json';
+import { LimitOrderFields } from '@0x/protocol-utils';
 
 export interface OrderWatcherInterface {
     postOrdersAsync(orders: SignedLimitOrder[]): Promise<void>;
@@ -30,7 +30,7 @@ enum OrderStatus {
 export class OrderWatcher implements OrderWatcherInterface {
     private readonly _connection: Connection;
     private readonly _provider: providers.JsonRpcProvider;
-    private readonly _zeroEx: any;
+    private readonly _zeroEx;
 
     constructor(connection: Connection, provider: providers.JsonRpcProvider) {
         this._connection = connection;
@@ -39,13 +39,13 @@ export class OrderWatcher implements OrderWatcherInterface {
             EXCHANGE_RPOXY,
             new ethers.utils.Interface(NativeOrdersFeature.abi),
             provider,
-        );
+        ) as any;
     }
 
     /// @dev assume schema has already been validated.
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
-        const [validOrders, invalidOrders] = await this.filterFreshOrders(orders);
+        const [validOrders, invalidOrders] = await this._filterFreshOrders(orders);
 
         if (invalidOrders.length > 0) {
             throw new Error(`invalid orders: ${JSON.stringify(invalidOrders)}`);
@@ -79,8 +79,8 @@ export class OrderWatcher implements OrderWatcherInterface {
     }
 
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
-        const [validOrders, invalidOrders] = await this.filterFreshOrders(
-            orderEntities.map((order) => orderUtils.deserializeOrder(order as Required<SignedOrderV4Entity>)),
+        const [validOrders, invalidOrders] = await this._filterFreshOrders(
+            orderEntities.map((order) => orderUtils.deserializeOrder(order as any)),
         );
         if (validOrders.length > 0) {
             await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
@@ -100,17 +100,27 @@ export class OrderWatcher implements OrderWatcherInterface {
     ///  - verifyingContractが正しいZeroExProxyのアドレスか
     ///  - 署名が正しいか
     ///  - makerが十分な残高を持っているか, allowanceが十分か zeroExに問い合わせる
-    private async filterFreshOrders(orders: SignedLimitOrder[]) {
-        const limitOrders = [];
+    private async _filterFreshOrders(orders: SignedLimitOrder[]) {
+        const limitOrders: LimitOrderFields[] = [];
         const signatures = [];
         const validOrderEntities: SignedOrderV4Entity[] = [];
         const invalidOrderEntities: SignedOrderV4Entity[] = [];
 
+        // split orders into limitOrders and signatures
         for (const order of orders) {
             const { signature, ...limitOrder } = order;
-            limitOrders.push(limitOrder);
             signatures.push(signature);
+            limitOrders.push({
+                ...limitOrder,
+                makerAmount: limitOrder.makerAmount.toString() as any,
+                takerAmount: limitOrder.takerAmount.toString() as any,
+                takerTokenFeeAmount: limitOrder.takerTokenFeeAmount.toString() as any,
+                expiry: limitOrder.expiry.toString() as any,
+                salt: limitOrder.salt.toString() as any,
+            });
         }
+
+        // query orders status
         const {
             orderInfos,
             actualFillableTakerTokenAmounts,
@@ -124,12 +134,7 @@ export class OrderWatcher implements OrderWatcherInterface {
             actualFillableTakerTokenAmounts: BigNumber[];
             isSignatureValids: boolean[];
         } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
-        // NOTE: XXX
-        // order-watcherにbugある可能性
-        // eventsとtrades.csvで同じorderHashが繰り返し出てくる
-        // TODO: order-watcher動くか？
-        // TODO: amaterasu_clientにcanceled_orderを管理するキューを作ったので機能しているか確認する
-        // TODO: 約定した注文をキューに入れる
+
         isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
                 throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
