@@ -77,10 +77,10 @@ export const PROTOCOL_FEE_MULTIPLIER = new BigNumber(0);
 
 export const NATIVE_WRAPPED_TOKEN_SYMBOL = nativeWrappedTokenSymbol(CHAIN_ID);
 
-export const SYNC_INTERVAL: number = Number(process.env.SYNC_INTERVAL) || SRA_ORDER_EXPIRATION_BUFFER_SECONDS * 1000;
+export const SYNC_INTERVAL: number = Number(process.env.SYNC_INTERVAL) || 5000;
 
-export const POLLING_INTERVAL: number = Number(process.env.POLLING_INTERVAL) || 500;
+export const POLLING_INTERVAL: number = Number(process.env.POLLING_INTERVAL) || 1000;
 
-export const DEFAULT_LOG_PATH: string = '../events_log.csv';
+export const DEFAULT_LOG_PATH: string = '../events.csv';
 
 export const LOG_PATH: string = process.env.LOG_PATH || DEFAULT_LOG_PATH;

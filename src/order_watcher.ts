@@ -1,24 +1,31 @@
 import { LimitOrder } from '@0x/protocol-utils';
-import { Connection, In, LessThanOrEqual } from 'typeorm';
+import { Connection, In, LessThanOrEqual, MoreThan } from 'typeorm';
 import { BigNumber, providers, ethers } from 'ethers';
 
 import { orderUtils } from './utils/order_utils';
 import { LimitOrderFilledEventArgs, SignedLimitOrder } from './types';
-import { EXCHANGE_RPOXY, SRA_ORDER_EXPIRATION_BUFFER_SECONDS } from './config';
-import { ONE_SECOND_MS } from './constants';
+import { EXCHANGE_RPOXY, SRA_ORDER_EXPIRATION_BUFFER_SECONDS, SYNC_INTERVAL } from './config';
+
 import { SignedOrderV4Entity } from './entities';
 import { logger } from './logger';
 import NativeOrdersFeature from './abi/NativeOrdersFeature.json';
 
 export interface OrderWatcherInterface {
     postOrdersAsync(orders: SignedLimitOrder[]): Promise<void>;
-    updateFilledOrderAsync(event: LimitOrderFilledEventArgs): Promise<void>;
     updateFilledOrdersAsync(events: LimitOrderFilledEventArgs[]): Promise<void>;
     updateCanceledOrdersByHashAsync(orderHashes: string[]): Promise<void>;
     syncFreshOrders(): Promise<void>;
 }
 
 const BN = BigNumber.from;
+
+enum OrderStatus {
+    INVALID = 0,
+    FILLABLE = 1,
+    FILLED = 2,
+    CANCELLED = 3,
+    EXPIRED = 4,
+}
 
 export class OrderWatcher implements OrderWatcherInterface {
     private readonly _connection: Connection;
@@ -38,80 +45,27 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev assume schema has already been validated.
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
-        const validOrders = await this.filterFreshOrders(orders);
+        const [validOrders, invalidOrders] = await this.filterFreshOrders(orders);
 
+        if (invalidOrders.length > 0) {
+            throw new Error(`invalid orders: ${JSON.stringify(invalidOrders)}`);
+        }
         // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
-        await this._connection.getRepository(SignedOrderV4Entity).save(
-            validOrders.map((order) => {
-                const limitOrder = new LimitOrder(order);
-                return orderUtils.serializeOrder({
-                    order,
-                    metaData: {
-                        orderHash: limitOrder.getHash(),
-                        remainingFillableTakerAmount: order.takerAmount,
-                    },
-                });
-            }),
-        );
+        await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
     }
 
     /// @dev
     /// if remainingFillableTakerAmountが0なら完全約定であるので削除する
     /// else 部分約定とみなして、remainingFillableTakerAmountを更新
-    public async updateFilledOrderAsync(event: LimitOrderFilledEventArgs): Promise<void> {
-        const signedOrdersEntity = await this._connection.getRepository(SignedOrderV4Entity).findOne(event.orderHash);
-        if (!signedOrdersEntity?.remainingFillableTakerAmount) {
-            return;
-        }
-        const remainingFillableTakerAmount = BN(signedOrdersEntity.remainingFillableTakerAmount ?? 0).sub(
-            BN(event.takerTokenFilledAmount),
-        );
-        if (remainingFillableTakerAmount.isZero()) {
-            await this._connection.getRepository(SignedOrderV4Entity).remove(signedOrdersEntity);
-        } else {
-            signedOrdersEntity.remainingFillableTakerAmount = remainingFillableTakerAmount.toString();
-            await this._connection.getRepository(SignedOrderV4Entity).update(event.orderHash, signedOrdersEntity);
-        }
-    }
-
     public async updateFilledOrdersAsync(events: LimitOrderFilledEventArgs[]): Promise<void> {
         const orderEntities = await this._connection.manager.find(SignedOrderV4Entity, {
             where: {
                 hash: In(events.map((event) => event.orderHash)),
             },
         });
-        const fullyFilledOrders: SignedOrderV4Entity[] = [];
-        const partiallyFilledOrders: SignedOrderV4Entity[] = [];
-        orderEntities.forEach((orderEntity) => {
-            const takerTokenFilledAmount =
-                events.find((event) => orderEntity?.hash == event.orderHash)?.takerTokenFilledAmount ?? 0;
-            const remainingFillableTakerAmount = BN(orderEntity?.remainingFillableTakerAmount).sub(
-                BN(takerTokenFilledAmount),
-            );
-
-            orderEntity.remainingFillableTakerAmount = remainingFillableTakerAmount.toString();
-
-            if (remainingFillableTakerAmount.isZero()) {
-                fullyFilledOrders.push(orderEntity);
-            } else {
-                partiallyFilledOrders.push(orderEntity);
-            }
-        });
-        const promises: Promise<any>[] = [];
-        if (fullyFilledOrders.length > 0) {
-            // Deletes entities by a given criteria.  Does not check if entity exist in the database.
-            promises.push(
-                this._connection
-                    .getRepository(SignedOrderV4Entity)
-                    .delete(fullyFilledOrders.map((order) => (order?.hash ? order.hash : ''))),
-            );
+        if (orderEntities.length > 0) {
+            await this._syncFreshOrders(orderEntities);
         }
-        if (partiallyFilledOrders.length > 0) {
-            // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
-            promises.push(this._connection.getRepository(SignedOrderV4Entity).save(partiallyFilledOrders));
-        }
-
-        await Promise.all(promises);
     }
 
     public async updateCanceledOrdersByHashAsync(orderHashes: string[]): Promise<void> {
@@ -120,20 +74,23 @@ export class OrderWatcher implements OrderWatcherInterface {
 
     /// @dev TODO: makerが十分な残高を持っているか, allowanceが十分か
     public async syncFreshOrders() {
-        // fetch expired orders
-        const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS) + SRA_ORDER_EXPIRATION_BUFFER_SECONDS;
-        const expiredOrders = await this._connection.getRepository(SignedOrderV4Entity).find({
-            where: {
-                expiry: LessThanOrEqual(expiryTime),
-            },
-        });
-        if (expiredOrders.length > 0) {
-            await this._connection.getRepository(SignedOrderV4Entity).delete(
-                expiredOrders.map((order) => {
-                    return order?.hash ? order.hash : '';
-                }),
-            );
-            logger.info(`Expired orders: ${expiredOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+        const orderEntities = await this._connection.manager.find(SignedOrderV4Entity);
+        await this._syncFreshOrders(orderEntities);
+    }
+
+    private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
+        const [validOrders, invalidOrders] = await this.filterFreshOrders(
+            orderEntities.map((order) => orderUtils.deserializeOrder(order as Required<SignedOrderV4Entity>)),
+        );
+        if (validOrders.length > 0) {
+            await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
+            logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+        }
+        if (invalidOrders.length > 0) {
+            await this._connection
+                .getRepository(SignedOrderV4Entity)
+                .delete(invalidOrders.map((order) => order.hash as any));
+            logger.info(`remove orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
     }
 
@@ -146,7 +103,8 @@ export class OrderWatcher implements OrderWatcherInterface {
     private async filterFreshOrders(orders: SignedLimitOrder[]) {
         const limitOrders = [];
         const signatures = [];
-        const validOrders: SignedLimitOrder[] = [];
+        const validOrderEntities: SignedOrderV4Entity[] = [];
+        const invalidOrderEntities: SignedOrderV4Entity[] = [];
 
         for (const order of orders) {
             const { signature, ...limitOrder } = order;
@@ -174,15 +132,30 @@ export class OrderWatcher implements OrderWatcherInterface {
         // TODO: 約定した注文をキューに入れる
         isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
-                throw new Error('Invalid signature');
+                throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
             }
-            if (
-                actualFillableTakerTokenAmounts[index].gt(0) &&
-                (orderInfos[index].status === 1 || orderInfos[index].status === 2)
-            ) {
-                validOrders.push(orders[index]);
+            if (actualFillableTakerTokenAmounts[index].gt(0) && orderInfos[index].status === OrderStatus.FILLABLE) {
+                validOrderEntities.push(
+                    orderUtils.serializeOrder({
+                        order: orders[index],
+                        metaData: {
+                            orderHash: orderInfos[index].orderHash,
+                            remainingFillableTakerAmount: actualFillableTakerTokenAmounts[index] as any,
+                        },
+                    }),
+                );
+            } else {
+                invalidOrderEntities.push(
+                    orderUtils.serializeOrder({
+                        order: orders[index],
+                        metaData: {
+                            orderHash: orderInfos[index].orderHash,
+                            remainingFillableTakerAmount: BN(0) as any,
+                        },
+                    }),
+                );
             }
         });
-        return validOrders;
+        return [validOrderEntities, invalidOrderEntities];
     }
 }
