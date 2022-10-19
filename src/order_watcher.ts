@@ -95,7 +95,14 @@ export class OrderWatcher implements OrderWatcherInterface {
         const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
             await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
         if (validOrders.length > 0) {
-            await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
+            await this._connection.getRepository(SignedOrderV4Entity).save(
+                validOrders.map((order) => {
+                    return {
+                        hash: order.hash,
+                        remainingFillableTakerAmount: order.remainingFillableTakerAmount,
+                    };
+                }),
+            );
             logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
         const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
