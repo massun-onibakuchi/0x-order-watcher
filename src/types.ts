@@ -1,8 +1,6 @@
-import { HttpServiceConfig as BaseHttpConfig } from '@0x/api-utils';
 import {
     AffiliateFeeType,
     ChainId,
-    ContractAddresses,
     ERC20BridgeSource,
     ExtendedQuoteReportSources,
     LimitOrderFields,
@@ -10,12 +8,26 @@ import {
     QuoteReport,
     RfqRequestOpts,
     Signature,
-    SupportedProvider,
 } from '@0x/asset-swapper';
 import { ExchangeProxyMetaTransaction, ZeroExTransaction } from '@0x/types';
 import { BigNumber } from '@0x/utils';
 
 import { Integrator } from './config';
+
+export enum OrderStatus {
+    INVALID = 0,
+    FILLABLE = 1,
+    FILLED = 2,
+    CANCELLED = 3,
+    EXPIRED = 4,
+}
+
+export interface OrderWatcherInterface {
+    postOrdersAsync(orders: SignedLimitOrder[]): Promise<void>;
+    updateFilledOrdersAsync(events: LimitOrderFilledEventArgs[]): Promise<void>;
+    updateCanceledOrdersByHashAsync(orderHashes: string[]): Promise<void>;
+    syncFreshOrders(): Promise<void>;
+}
 
 export enum OrderWatcherLifeCycleEvents {
     Added,
