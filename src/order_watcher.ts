@@ -1,29 +1,18 @@
-import { LimitOrder } from '@0x/protocol-utils';
-import { Connection, In, LessThanOrEqual } from 'typeorm';
-import { BigNumber, providers, ethers } from 'ethers';
+import { Connection, In } from 'typeorm';
+import { providers, ethers, BigNumber } from 'ethers';
+import { LimitOrderFields } from '@0x/protocol-utils';
 
 import { orderUtils } from './utils/order_utils';
-import { LimitOrderFilledEventArgs, SignedLimitOrder } from './types';
-import { EXCHANGE_RPOXY, SRA_ORDER_EXPIRATION_BUFFER_SECONDS } from './config';
-import { ONE_SECOND_MS } from './constants';
 import { SignedOrderV4Entity } from './entities';
+import { LimitOrderFilledEventArgs, SignedLimitOrder, OrderStatus, OrderWatcherInterface } from './types';
+import { EXCHANGE_RPOXY } from './config';
 import { logger } from './logger';
 import NativeOrdersFeature from './abi/NativeOrdersFeature.json';
-
-export interface OrderWatcherInterface {
-    postOrdersAsync(orders: SignedLimitOrder[]): Promise<void>;
-    updateFilledOrderAsync(event: LimitOrderFilledEventArgs): Promise<void>;
-    updateFilledOrdersAsync(events: LimitOrderFilledEventArgs[]): Promise<void>;
-    updateCanceledOrdersByHashAsync(orderHashes: string[]): Promise<void>;
-    syncFreshOrders(): Promise<void>;
-}
-
-const BN = BigNumber.from;
 
 export class OrderWatcher implements OrderWatcherInterface {
     private readonly _connection: Connection;
     private readonly _provider: providers.JsonRpcProvider;
-    private readonly _zeroEx: any;
+    private readonly _zeroEx;
 
     constructor(connection: Connection, provider: providers.JsonRpcProvider) {
         this._connection = connection;
@@ -32,87 +21,48 @@ export class OrderWatcher implements OrderWatcherInterface {
             EXCHANGE_RPOXY,
             new ethers.utils.Interface(NativeOrdersFeature.abi),
             provider,
-        );
+        ) as any;
     }
 
     /// @dev assume schema has already been validated.
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
-        await this.validateOrders(orders);
+        const [validOrders, invalidOrders, canceledOrders, expiredOrders, filledOrders] = await this._filterFreshOrders(
+            orders,
+        ).catch((e) => {
+            logger.error(`error:`, e);
+            throw e;
+        });
 
+        if (invalidOrders.length > 0) {
+            throw new Error(`invalid orders ${JSON.stringify(invalidOrders)}`);
+        }
+        if (canceledOrders.length > 0) {
+            // logger.warn(`canceled orders ${JSON.stringify(canceledOrders)}`);
+            throw new Error(`canceled orders ${JSON.stringify(canceledOrders)}`);
+        }
+        if (expiredOrders.length > 0) {
+            throw new Error(`expired orders ${JSON.stringify(expiredOrders)}`);
+        }
+        if (filledOrders.length > 0) {
+            throw new Error(`already fully filled orders ${JSON.stringify(filledOrders)}`);
+        }
         // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
-        await this._connection.getRepository(SignedOrderV4Entity).save(
-            orders.map((order) => {
-                const limitOrder = new LimitOrder(order);
-                return orderUtils.serializeOrder({
-                    order,
-                    metaData: {
-                        orderHash: limitOrder.getHash(),
-                        remainingFillableTakerAmount: order.takerAmount,
-                    },
-                });
-            }),
-        );
+        await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
     }
 
     /// @dev
     /// if remainingFillableTakerAmountが0なら完全約定であるので削除する
     /// else 部分約定とみなして、remainingFillableTakerAmountを更新
-    public async updateFilledOrderAsync(event: LimitOrderFilledEventArgs): Promise<void> {
-        const signedOrdersEntity = await this._connection.getRepository(SignedOrderV4Entity).findOne(event.orderHash);
-        if (!signedOrdersEntity?.remainingFillableTakerAmount) {
-            return;
-        }
-        const remainingFillableTakerAmount = BN(signedOrdersEntity.remainingFillableTakerAmount ?? 0).sub(
-            BN(event.takerTokenFilledAmount),
-        );
-        if (remainingFillableTakerAmount.isZero()) {
-            // Deletes entities by a given criteria.  Does not check if entity exist in the database.
-            await this._connection.getRepository(SignedOrderV4Entity).delete(event.orderHash);
-        } else {
-            signedOrdersEntity.remainingFillableTakerAmount = remainingFillableTakerAmount.toString();
-            await this._connection.getRepository(SignedOrderV4Entity).update(event.orderHash, signedOrdersEntity);
-        }
-    }
-
     public async updateFilledOrdersAsync(events: LimitOrderFilledEventArgs[]): Promise<void> {
         const orderEntities = await this._connection.manager.find(SignedOrderV4Entity, {
             where: {
                 hash: In(events.map((event) => event.orderHash)),
             },
         });
-        const fullyFilledOrders: SignedOrderV4Entity[] = [];
-        const partiallyFilledOrders: SignedOrderV4Entity[] = [];
-        orderEntities.forEach((orderEntity) => {
-            const takerTokenFilledAmount =
-                events.find((event) => orderEntity?.hash == event.orderHash)?.takerTokenFilledAmount ?? 0;
-            const remainingFillableTakerAmount = BN(orderEntity?.remainingFillableTakerAmount).sub(
-                BN(takerTokenFilledAmount),
-            );
-
-            orderEntity.remainingFillableTakerAmount = remainingFillableTakerAmount.toString();
-
-            if (remainingFillableTakerAmount.isZero()) {
-                fullyFilledOrders.push(orderEntity);
-            } else {
-                partiallyFilledOrders.push(orderEntity);
-            }
-        });
-        const promises: Promise<any>[] = [];
-        if (fullyFilledOrders.length > 0) {
-            // Deletes entities by a given criteria.  Does not check if entity exist in the database.
-            promises.push(
-                this._connection
-                    .getRepository(SignedOrderV4Entity)
-                    .delete(fullyFilledOrders.map((order) => (order?.hash ? order.hash : ''))),
-            );
+        if (orderEntities.length > 0) {
+            await this._syncFreshOrders(orderEntities);
         }
-        if (partiallyFilledOrders.length > 0) {
-            // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
-            promises.push(this._connection.getRepository(SignedOrderV4Entity).save(partiallyFilledOrders));
-        }
-
-        await Promise.all(promises);
     }
 
     public async updateCanceledOrdersByHashAsync(orderHashes: string[]): Promise<void> {
@@ -121,66 +71,137 @@ export class OrderWatcher implements OrderWatcherInterface {
 
     /// @dev TODO: makerが十分な残高を持っているか, allowanceが十分か
     public async syncFreshOrders() {
-        // fetch expired orders
-        const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS) + SRA_ORDER_EXPIRATION_BUFFER_SECONDS;
-        const expiredOrders = await this._connection.getRepository(SignedOrderV4Entity).find({
-            where: {
-                expiry: LessThanOrEqual(expiryTime),
-            },
-        });
-        if (expiredOrders.length > 0) {
-            await this._connection.getRepository(SignedOrderV4Entity).delete(
-                expiredOrders.map((order) => {
-                    return order?.hash ? order.hash : '';
+        const orderEntities = await this._connection.manager.find(SignedOrderV4Entity);
+        await this._syncFreshOrders(orderEntities);
+    }
+
+    private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
+        const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
+            await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
+        if (validOrders.length > 0) {
+            await this._connection.getRepository(SignedOrderV4Entity).save(
+                validOrders.map((order) => {
+                    return {
+                        hash: order.hash,
+                        remainingFillableTakerAmount: order.remainingFillableTakerAmount,
+                    };
                 }),
             );
-            logger.info(`Expired orders: ${expiredOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+            logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+        }
+        const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
+        if (ordersRemove.length > 0) {
+            await this._connection
+                .getRepository(SignedOrderV4Entity)
+                .delete(ordersRemove.map((order) => order.hash as any));
+            logger.info(`remove orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
     }
 
-    /// @dev orderが無効ならエラーを投げる
-    ///  - 有効期限が切れていないか
-    ///  - chainIdが正しいか
-    ///  - verifyingContractが正しいZeroExProxyのアドレスか
-    ///  - 署名が正しいか
-    ///  - makerが十分な残高を持っているか, allowanceが十分か zeroExに問い合わせる
-    private async validateOrders(orders: SignedLimitOrder[]) {
-        const limitOrders = [];
+    /// @dev filter orders
+    ///  - order is valid format
+    ///  - order is expired
+    ///  - chainId is valid
+    ///  - signature is valid
+    ///  - order is not canceled
+    ///  - order is not filled
+    ///  -  maker has enough balance and allowance
+    private async _filterFreshOrders(orders: SignedLimitOrder[]) {
+        const limitOrders: LimitOrderFields[] = [];
         const signatures = [];
+        const validOrderEntities: SignedOrderV4Entity[] = [];
+        const invalidOrderEntities: SignedOrderV4Entity[] = [];
+        const filledOrderEntities: SignedOrderV4Entity[] = [];
+        const canceledOrderEntities: SignedOrderV4Entity[] = [];
+        const expiredOrderEntities: SignedOrderV4Entity[] = [];
 
+        // split orders into limitOrders and signatures
         for (const order of orders) {
             const { signature, ...limitOrder } = order;
-            limitOrders.push(limitOrder);
             signatures.push(signature);
+            limitOrders.push({
+                ...limitOrder,
+                makerAmount: limitOrder.makerAmount.toString() as any,
+                takerAmount: limitOrder.takerAmount.toString() as any,
+                takerTokenFeeAmount: limitOrder.takerTokenFeeAmount.toString() as any,
+                expiry: limitOrder.expiry.toString() as any,
+                salt: limitOrder.salt.toString() as any,
+            });
         }
-        const { orderInfos, actualFillableTakerTokenAmounts, isSignatureValids } =
-            await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
-        isSignatureValids.forEach((isValidSig: Boolean) => {
+
+        // query orders status
+        /// @param orders The limit orders.
+        /// @param signatures The order signatures.
+        /// @return orderInfos Info about the orders.
+        /// @return actualFillableTakerTokenAmounts How much of each order is fillable
+        ///         based on maker funds, in taker tokens.
+        /// @return isSignatureValids Whether each signature is valid for the order.
+        const {
+            orderInfos,
+            actualFillableTakerTokenAmounts,
+            isSignatureValids,
+        }: {
+            orderInfos: {
+                orderHash: string;
+                status: number;
+                takerTokenFilledAmount: BigNumber;
+            }[];
+            actualFillableTakerTokenAmounts: BigNumber[];
+            isSignatureValids: boolean[];
+        } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
+
+        isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
-                throw new Error('Invalid signature');
+                throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
+            }
+            const entity = orderUtils.serializeOrder({
+                order: orders[index],
+                metaData: {
+                    orderHash: orderInfos[index].orderHash,
+                    remainingFillableTakerAmount: actualFillableTakerTokenAmounts[index] as any,
+                },
+            });
+            if (actualFillableTakerTokenAmounts[index].gt(0) && orderInfos[index].status === OrderStatus.FILLABLE) {
+                validOrderEntities.push(entity);
+            }
+
+            if (
+                orderInfos[index].status === OrderStatus.INVALID ||
+                (actualFillableTakerTokenAmounts[index].isZero() && orderInfos[index].status === OrderStatus.FILLABLE)
+            ) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
+                        OrderStatus[orderInfos[index].status]
+                    }`,
+                );
+                invalidOrderEntities.push(entity);
+            } else if (orderInfos[index].status === OrderStatus.FILLED) {
+                logger.info(
+                    `order is filled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]}`,
+                );
+                filledOrderEntities.push(entity);
+            } else if (orderInfos[index].status === OrderStatus.CANCELLED) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
+                        OrderStatus[orderInfos[index].status]
+                    }`,
+                );
+                canceledOrderEntities.push(entity);
+            } else if (orderInfos[index].status === OrderStatus.EXPIRED) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
+                        OrderStatus[orderInfos[index].status]
+                    }`,
+                );
+                expiredOrderEntities.push(entity);
             }
         });
-        // const expiryTime = Math.floor(Date.now() / ONE_SECOND_MS);
-
-        // for (const order of orders) {
-        //     if (Number(order.expiry) <= expiryTime) {
-        //         throw new Error(`Order expired: ${order.expiry}`);
-        //     }
-        //     if (order.chainId !== CHAIN_ID) {
-        //         throw new Error(`Order chainId is invalid: ${order.chainId}`);
-        //     }
-        //     // if (order.verifyingContract.toLowerCase() !== EXCHANGE_RPOXY.toLowerCase()) {
-        //     //     throw new Error(`Order verifyingContract is invalid: ${order.verifyingContract}`);
-        //     // }
-        //     if (order.signature.signatureType !== SignatureType.EthSign) {
-        //         throw new Error(`signatureType ${order.signature.signatureType} is not supported`);
-        //     }
-        //     const signer = order.maker;
-        //     const { signatureType, v, r, s } = order.signature;
-        /// NOTE: somehoow can't recovery signer from signature
-        // const hash = new LimitOrder(order).getHash();
-        // if (utils.recoverAddress(hash, { v, r, s }) !== signer) {
-        //     throw new Error(`Order signature is invalid: hash ${hash} and (type,v,r,s) ${signatureType}, ${v}, ${r}, ${s}`);
-        // }
+        return [
+            validOrderEntities,
+            invalidOrderEntities,
+            canceledOrderEntities,
+            expiredOrderEntities,
+            filledOrderEntities,
+        ];
     }
 }

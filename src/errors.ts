@@ -25,16 +25,6 @@ export class InsufficientFundsError extends BadRequestError<APIErrorCodes> {
     public generalErrorCode = APIErrorCodes.InsufficientFundsError;
 }
 
-export class EthSellNotSupportedError extends BadRequestError<APIErrorCodes> {
-    public statusCode = HttpStatus.BAD_REQUEST;
-    public generalErrorCode = APIErrorCodes.EthSellNotSupported;
-}
-
-export class GasEstimationError extends BadRequestError<APIErrorCodes> {
-    public statusCode = HttpStatus.BAD_REQUEST;
-    public generalErrorCode = APIErrorCodes.GasEstimationFailed;
-}
-
 export enum APIErrorCodes {
     OrderSubmissionDisabled = 102,
     UnableToSubmitOnBehalfOfTaker = 106,
