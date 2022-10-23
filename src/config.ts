@@ -19,7 +19,7 @@ export interface Integrator {
 export type IntegratorsAcl = Integrator[];
 
 // Log level for pino.js
-export const LOG_LEVEL: string = process.env.LOG_LEVEL ?? 'info';
+export const LOG_LEVEL: string = process.env.LOG_LEVEL?.toLowerCase() ?? 'info';
 
 export const DEFAULT_LOGGER_INCLUDE_TIMESTAMP = true;
 
@@ -76,3 +76,7 @@ export const POSTGRES_URI = DEFAULT_LOCAL_POSTGRES_URI;
 export const PROTOCOL_FEE_MULTIPLIER = new BigNumber(0);
 
 export const NATIVE_WRAPPED_TOKEN_SYMBOL = nativeWrappedTokenSymbol(CHAIN_ID);
+
+export const SYNC_INTERVAL: number = Number(process.env.SYNC_INTERVAL) || 2000;
+
+export const POLLING_INTERVAL: number = Number(process.env.POLLING_INTERVAL) || 1000;
