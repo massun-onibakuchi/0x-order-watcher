@@ -1,11 +1,11 @@
 import express from 'express';
 import { ethers } from 'ethers';
+import ExpressPinoLogger from 'express-pino-logger';
 
 import { LimitOrderFilledEventArgs, OrderCanceledEventArgs } from './types';
 import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
-
 import {
     RPC_URL,
     EXCHANGE_RPOXY,
@@ -18,6 +18,9 @@ import {
 } from './config';
 import * as fs from 'fs';
 
+const expressPino = ExpressPinoLogger({
+    logger,
+});
 const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat(undefined, {
         year: 'numeric',
@@ -31,7 +34,7 @@ const formatDate = (date: Date) => {
 };
 // creates an Express application.
 const app = express();
-
+app.use(expressPino);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
