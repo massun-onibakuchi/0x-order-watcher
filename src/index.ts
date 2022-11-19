@@ -20,6 +20,15 @@ import * as fs from 'fs';
 
 const expressPino = ExpressPinoLogger({
     logger,
+    // https://github.com/pinojs/express-pino-logger
+    // https://github.com/pinojs/express-pino-logger/issues/24
+    // BUG: 何故かbodyがlogに出力されない
+    // serializers: {
+    //     req(req) {
+    //         req.body = req.raw.body;
+    //         return req;
+    //     },
+    // },
 });
 const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat(undefined, {
@@ -63,7 +72,7 @@ app.post('/ping', function (req, res) {
 // receive POST request from 0x-api `POST orderbook/v1/order`.
 app.post('/orders', async function (req: express.Request, res) {
     try {
-        logger.debug(req.body);
+        req.log.info(req.body);
         // save orders to DB
         await orderWatcher.postOrdersAsync(req.body);
         res.status(200).json();
