@@ -1,11 +1,11 @@
 import express from 'express';
 import { ethers } from 'ethers';
+import ExpressPinoLogger from 'express-pino-logger';
 
 import { LimitOrderFilledEventArgs, OrderCanceledEventArgs } from './types';
 import { OrderWatcher } from './order_watcher';
 import { getDBConnectionAsync } from './db_connection';
 import { logger } from './logger';
-
 import {
     RPC_URL,
     EXCHANGE_RPOXY,
@@ -18,6 +18,18 @@ import {
 } from './config';
 import * as fs from 'fs';
 
+const expressPino = ExpressPinoLogger({
+    logger,
+    // https://github.com/pinojs/express-pino-logger
+    // https://github.com/pinojs/express-pino-logger/issues/24
+    // BUG: 何故かbodyがlogに出力されない
+    // serializers: {
+    //     req(req) {
+    //         req.body = req.raw.body;
+    //         return req;
+    //     },
+    // },
+});
 const formatDate = (date: Date) => {
     return new Intl.DateTimeFormat(undefined, {
         year: 'numeric',
@@ -31,7 +43,7 @@ const formatDate = (date: Date) => {
 };
 // creates an Express application.
 const app = express();
-
+app.use(expressPino);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -60,7 +72,7 @@ app.post('/ping', function (req, res) {
 // receive POST request from 0x-api `POST orderbook/v1/order`.
 app.post('/orders', async function (req: express.Request, res) {
     try {
-        logger.debug(req.body);
+        req.log.info(req.body);
         // save orders to DB
         await orderWatcher.postOrdersAsync(req.body);
         res.status(200).json();
