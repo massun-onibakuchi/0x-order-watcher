@@ -143,6 +143,12 @@ export class OrderWatcher implements OrderWatcherInterface {
             });
         }
 
+
+        const result = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
+        logger.info("!!!! batchGetLimitOrderRelevantStates !!!!");
+        logger.info(result);
+        logger.info("### batchGetLimitOrderRelevantStates ###");
+
         // query orders status
         /// @param orders The limit orders.
         /// @param signatures The order signatures.
@@ -162,7 +168,7 @@ export class OrderWatcher implements OrderWatcherInterface {
             }[];
             actualFillableTakerTokenAmounts: BigNumber[];
             isSignatureValids: boolean[];
-        } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
+        } = result;
 
         isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
@@ -185,8 +191,7 @@ export class OrderWatcher implements OrderWatcherInterface {
                 (actualFillableTakerTokenAmounts[index].isZero() && orderInfos[index].status === OrderStatus.FILLABLE)
             ) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
-                        OrderStatus[orderInfos[index].status]
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     }`,
                 );
                 invalidOrderEntities.push(entity);
@@ -197,15 +202,13 @@ export class OrderWatcher implements OrderWatcherInterface {
                 filledOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.CANCELLED) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
-                        OrderStatus[orderInfos[index].status]
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     }`,
                 );
                 canceledOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.EXPIRED) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
-                        OrderStatus[orderInfos[index].status]
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     }`,
                 );
                 expiredOrderEntities.push(entity);
