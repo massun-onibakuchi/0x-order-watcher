@@ -143,12 +143,6 @@ export class OrderWatcher implements OrderWatcherInterface {
             });
         }
 
-
-        const result = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
-        logger.info("!!!! batchGetLimitOrderRelevantStates !!!!");
-        logger.info(result);
-        logger.info("### batchGetLimitOrderRelevantStates ###");
-
         // query orders status
         /// @param orders The limit orders.
         /// @param signatures The order signatures.
@@ -168,12 +162,13 @@ export class OrderWatcher implements OrderWatcherInterface {
             }[];
             actualFillableTakerTokenAmounts: BigNumber[];
             isSignatureValids: boolean[];
-        } = result;
+        } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
 
         isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
                 throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
             }
+
             const entity = orderUtils.serializeOrder({
                 order: orders[index],
                 metaData: {
@@ -181,18 +176,20 @@ export class OrderWatcher implements OrderWatcherInterface {
                     remainingFillableTakerAmount: actualFillableTakerTokenAmounts[index] as any,
                 },
             });
+
             if (actualFillableTakerTokenAmounts[index].gt(0) && orderInfos[index].status === OrderStatus.FILLABLE) {
                 validOrderEntities.push(entity);
             }
 
             // TODO: switch分にする??
-            if (
-                orderInfos[index].status === OrderStatus.INVALID ||
-                (actualFillableTakerTokenAmounts[index].isZero() && orderInfos[index].status === OrderStatus.FILLABLE)
-            ) {
+            if (orderInfos[index].status === OrderStatus.INVALID) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
-                    }`,
+                    `order is invalid: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]} order: ${orderInfos[index]}`,
+                );
+                invalidOrderEntities.push(entity);
+            } else if (actualFillableTakerTokenAmounts[index].isZero()) {
+                logger.info(
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]} order: ${orderInfos[index]}`,
                 );
                 invalidOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.FILLED) {
@@ -202,13 +199,13 @@ export class OrderWatcher implements OrderWatcherInterface {
                 filledOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.CANCELLED) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
+                    `order is cancelled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     }`,
                 );
                 canceledOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.EXPIRED) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
+                    `order is expired: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     }`,
                 );
                 expiredOrderEntities.push(entity);
