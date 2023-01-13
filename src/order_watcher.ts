@@ -19,7 +19,9 @@ export interface OrderWatcherInterface {
 
 enum OrderStatus {
     INVALID = 0,
+    // 約定可能
     FILLABLE = 1,
+    // 完全約定済み
     FILLED = 2,
     CANCELLED = 3,
     EXPIRED = 4,
@@ -41,6 +43,7 @@ export class OrderWatcher implements OrderWatcherInterface {
     }
 
     /// @dev assume schema has already been validated.
+    /// @notice 0xAPIのmaker注文提出API(POST orderbook/v1/order)が叩かれたときに呼ばれる。
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
         const [validOrders, invalidOrders, canceledOrders, expiredOrders, filledOrders] = await this._filterFreshOrders(
@@ -85,26 +88,30 @@ export class OrderWatcher implements OrderWatcherInterface {
         await this._connection.getRepository(SignedOrderV4Entity).delete(orderHashes);
     }
 
-    /// @dev TODO: makerが十分な残高を持っているか, allowanceが十分か
+    /// @dev DB内のmaker注文を最新の状態に同期する。
     public async syncFreshOrders() {
         const orderEntities = await this._connection.manager.find(SignedOrderV4Entity);
         await this._syncFreshOrders(orderEntities);
     }
 
+    /// @dev DB内のmaker注文を最新の状態に同期する。
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
         const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
             await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
+        // update valid orders
         if (validOrders.length > 0) {
             await this._connection.getRepository(SignedOrderV4Entity).save(
                 validOrders.map((order) => {
                     return {
                         hash: order.hash,
+                        // 約定可能残量を更新する
                         remainingFillableTakerAmount: order.remainingFillableTakerAmount,
                     };
                 }),
             );
             logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
+        // remove orders
         const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
         if (ordersRemove.length > 0) {
             await this._connection
@@ -191,7 +198,7 @@ export class OrderWatcher implements OrderWatcherInterface {
                 logger.info(
                     `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]} order: ${orderInfos[index]}`,
                 );
-                invalidOrderEntities.push(entity);
+                // invalidOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.FILLED) {
                 logger.info(
                     `order is filled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]}`,
