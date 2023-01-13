@@ -32,6 +32,7 @@ order-watcher はハイブリッド板取引アプリケーションのサービ
 | 完全約定                           |                                                                                                                                                                                                                                    |
 | 部分約定                           |                                                                                                                                                                                                                                    |
 | ZeroEx                             | ハイブリッド板取引 app のオンチェーン部分のシステム(Solidity で書かれたコントラクト)。1.maker と taker 間でトークンの転送を行い、注文を約定させる。2.make 注文のステータスを格納し、オフチェーン側から問い合わせる機能を提供する。 |
+| ExchangeProxy                      | ZeroEx のことを指す                                                                                                                                                                                                                      |
 
 make,take 注文は指値注文に対応するが、一般的な取引所で提供される注文とは仕様が異なる。
 
@@ -74,7 +75,7 @@ maker 注文は無効になる場合がある。
     1.  maker 注文を取得できる API
     2.  板を取得できる API
     3.  ユーザーが注文を提出できる API
-        - order-watcherへ注文を送信する。order-watcherは受け取った注文の有効性を検証した後、Postgresへ格納する。
+        -   order-watcher へ注文を送信する。order-watcher は受け取った注文の有効性を検証した後、Postgres へ格納する。
 
 ### Postgres
 
