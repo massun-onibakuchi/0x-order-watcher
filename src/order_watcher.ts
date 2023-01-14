@@ -113,6 +113,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         }
         // remove orders
         const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
+        logger.debug(`target remove orders: ${ordersRemove}`)
         if (ordersRemove.length > 0) {
             await this._connection
                 .getRepository(SignedOrderV4Entity)
