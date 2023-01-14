@@ -116,7 +116,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         if (ordersRemove.length > 0) {
             await this._connection
                 .getRepository(SignedOrderV4Entity)
-                .delete(ordersRemove.map((order) => order.hash as any));
+                .remove(ordersRemove);
             logger.info(`remove orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
     }
