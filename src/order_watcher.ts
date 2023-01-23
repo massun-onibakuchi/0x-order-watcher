@@ -66,11 +66,8 @@ export class OrderWatcher implements OrderWatcherInterface {
         if (filledOrders.length > 0) {
             throw new Error(`already fully filled orders ${JSON.stringify(filledOrders)}`);
         }
-        // Saves all specified entities with hash duplicates removed in the database. If entities do not exist in the database then inserts, otherwise updates.
-        const uniqueValidOrders = Array.from(
-            new Map(validOrders.map((order) => [order.hash, order]))
-        );
-        await this._connection.getRepository(SignedOrderV4Entity).save(uniqueValidOrders.values);
+        // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
+        await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
     }
 
     /// @dev
