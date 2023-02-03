@@ -26,7 +26,7 @@ const config: ConnectionOptions = {
     logging: true,
     logger: 'debug',
     extra: {
-        max: 15,
+        max: 100,
         statement_timeout: 10000,
     },
     url: POSTGRES_URI,
