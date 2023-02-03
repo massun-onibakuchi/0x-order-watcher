@@ -70,11 +70,11 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// if remainingFillableTakerAmountが0なら完全約定であるので削除する
     /// else 部分約定とみなして、remainingFillableTakerAmountを更新
     public async updateFilledOrdersAsync(events: LimitOrderFilledEventArgs[]): Promise<void> {
-        const orderEntities = await this._connection.manager.find(SignedOrderV4Entity, {
+        const orderEntities = await this._connection.getRepository(SignedOrderV4Entity).find({
             where: {
                 hash: In(events.map((event) => event.orderHash)),
-            },
-        });
+            }}
+        );
         if (orderEntities.length > 0) {
             await this._syncFreshOrders(orderEntities);
         }
@@ -86,7 +86,7 @@ export class OrderWatcher implements OrderWatcherInterface {
 
     /// @dev DB内のmaker注文を最新の状態に同期する。
     public async syncFreshOrders() {
-        const orderEntities = await this._connection.manager.find(SignedOrderV4Entity);
+        const orderEntities = await this._connection.getRepository(SignedOrderV4Entity).find();
         await this._syncFreshOrders(orderEntities);
     }
 
@@ -94,6 +94,7 @@ export class OrderWatcher implements OrderWatcherInterface {
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
         const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
             await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
+
         // update valid orders
         if (validOrders.length > 0) {
             await this._connection.getRepository(SignedOrderV4Entity).save(
@@ -107,6 +108,7 @@ export class OrderWatcher implements OrderWatcherInterface {
             );
             logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
+
         // remove orders
         const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
         logger.debug(`target remove orders: ${ordersRemove}`);
@@ -168,6 +170,7 @@ export class OrderWatcher implements OrderWatcherInterface {
 
         isSignatureValids.forEach((isValidSig: Boolean, index) => {
             if (!isValidSig) {
+                // TODO: throwじゃなくてinvalidOrderEntitiesに追加するだけでは？
                 throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
             }
 
