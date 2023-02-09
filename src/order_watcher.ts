@@ -189,15 +189,13 @@ export class OrderWatcher implements OrderWatcherInterface {
             // TODO: switch分にする??
             if (orderInfos[index].status === OrderStatus.INVALID) {
                 logger.info(
-                    `order is invalid: ${orderInfos[index].orderHash} status: ${
-                        OrderStatus[orderInfos[index].status]
+                    `order is invalid: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     } order: ${orderInfos[index]}`,
                 );
                 invalidOrderEntities.push(entity);
             } else if (actualFillableTakerTokenAmounts[index].isZero()) {
                 logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${
-                        OrderStatus[orderInfos[index].status]
+                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     } order: ${orderInfos[index]}`,
                 );
                 // invalidOrderEntities.push(entity);
@@ -208,8 +206,7 @@ export class OrderWatcher implements OrderWatcherInterface {
                 filledOrderEntities.push(entity);
             } else if (orderInfos[index].status === OrderStatus.CANCELLED) {
                 logger.info(
-                    `order is cancelled: ${orderInfos[index].orderHash} status: ${
-                        OrderStatus[orderInfos[index].status]
+                    `order is cancelled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
                     }`,
                 );
                 canceledOrderEntities.push(entity);
@@ -264,55 +261,37 @@ export async function createOrderWatcher(
     // NOTE: https://docs.ethers.io/v5/concepts/events/#events--filters
     // subscribe LimitOrderFilled events from ZeroEx contract
     const orderFilledEventFilter = exchangeContract.filters.LimitOrderFilled();
-    provider.on(orderFilledEventFilter, (log) => {
+    provider.on(orderFilledEventFilter, async (log) => {
         const filledOrderEvent = exchangeContract.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
-        setImmediate(
-            async (blockNumber, transactionHash, filledOrderEvent: LimitOrderFilledEventArgs) => {
-                // format
-                // "filledOrder", date, orderHash, maker, taker, makerToken, takerToken, takerTokenFilledAmount, makerTokenFilledAmount, takerTokenFeeFilledAmount
-                fs.appendFile(
-                    eventLogPath,
-                    `filledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
-                    (err) => {
-                        if (err) {
-                            logger.error(err);
-                        }
-                    },
-                );
-                logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
-                await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
+        fs.appendFile(
+            eventLogPath,
+            `filledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
             },
-            log.blockNumber,
-            log.transactionHash,
-            filledOrderEvent,
         );
+        logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
+        await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     });
 
     // subscribe OrderCancelled events from ZeroEx contract
     const orderCanceledEventFilter = exchangeContract.filters.OrderCancelled();
-    provider.on(orderCanceledEventFilter, (log) => {
+    provider.on(orderCanceledEventFilter, async (log) => {
         const canceledOrderEvent = exchangeContract.interface.parseLog(log).args as any as OrderCanceledEventArgs;
-        setImmediate(
-            async (blockNumber, transactionHash, canceledOrderEvent: OrderCanceledEventArgs) => {
-                // format
-                // "canceledOrder", date, orderHash, maker
-                fs.appendFile(
-                    eventLogPath,
-                    `canceledOrder,${blockNumber},${formatDate(new Date())},${transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
-                    (err) => {
-                        if (err) {
-                            logger.error(err);
-                        }
-                    },
-                );
-                await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
-                logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
+        fs.appendFile(
+            eventLogPath,
+            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
             },
-            log.blockNumber,
-            log.transactionHash,
-            canceledOrderEvent,
         );
+        await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
+        logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
     });
 
     return orderWatcher;
-}
+};

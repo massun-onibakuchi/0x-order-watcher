@@ -34,41 +34,40 @@ if (require.main === module) {
         const provider = new ethers.providers.StaticJsonRpcProvider(RPC_URL);
         provider.pollingInterval = POLLING_INTERVAL;
         orderWatcher = await createOrderWatcher(dbConnection, provider, logger);
-    })();
+    })().then(() => {
+        // periodically remove expired orders from DB
+        const timerId = setTimeout(async (ow) => {
+            logger.debug('start syncing unfilled orders...');
+            try {
+                await ow.syncFreshOrders();
+            } catch (error) {
+                logger.error(error);
+            }
+        }, SYNC_INTERVAL, orderWatcher);
+
+        app.post('/ping', function (req, res) {
+            res.json({ msg: 'pong, Got a POST request' });
+        });
+
+        // receive POST request from 0x-api `POST orderbook/v1/order`.
+        app.post('/orders', async function (req: express.Request, res) {
+            try {
+                req.log.info(req.body);
+                // save orders to DB
+                await orderWatcher.postOrdersAsync(req.body);
+                res.status(200).json();
+            } catch (err) {
+                logger.error(err);
+                res.status(500).json({ error: err.message });
+            }
+        });
+
+        app.listen(PORT, () => console.log(`app listening on port ${PORT} !`));
+    });
 }
-
-// periodically remove expired orders from DB
-const timerId = setInterval(async () => {
-    logger.debug('start syncing unfilled orders...');
-    try {
-        await orderWatcher.syncFreshOrders();
-    } catch (error) {
-        logger.error(error);
-    }
-}, SYNC_INTERVAL);
-
-app.post('/ping', function (req, res) {
-    res.json({ msg: 'pong, Got a POST request' });
-});
-
-// receive POST request from 0x-api `POST orderbook/v1/order`.
-app.post('/orders', async function (req: express.Request, res) {
-    try {
-        req.log.info(req.body);
-        // save orders to DB
-        await orderWatcher.postOrdersAsync(req.body);
-        res.status(200).json();
-    } catch (err) {
-        logger.error(err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.listen(PORT, () => console.log(`app listening on port ${PORT} !`));
 
 process.on('uncaughtException', (err) => {
     logger.error(err);
-    clearInterval(timerId);
     process.exit(1);
 });
 
