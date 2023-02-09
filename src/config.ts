@@ -1,4 +1,5 @@
-import { ChainId } from '@0x/asset-swapper';
+import 'dotenv/config';
+
 import { BigNumber } from '@0x/utils';
 
 import { NULL_ADDRESS } from './constants';
@@ -12,15 +13,13 @@ export const DEFAULT_LOGGER_INCLUDE_TIMESTAMP = true;
 export const LOGGER_INCLUDE_TIMESTAMP =
     process.env.LOGGER_INCLUDE_TIMESTAMP === 'true' ?? DEFAULT_LOGGER_INCLUDE_TIMESTAMP;
 
-console.log(process.env.CHAIN_ID);
-
-export const CHAIN_ID: ChainId = Number(process.env.CHAIN_ID) ?? ChainId.Ganache;
+export const CHAIN_ID = Number(process.env.CHAIN_ID) ?? 1337;
 
 export const DEFAULT_LOCAL_RPC_URL = 'http://localhost:8545';
 
 export const RPC_URL = process.env.RPC_URL || DEFAULT_LOCAL_RPC_URL;
 
-export const EXCHANGE_RPOXY = process.env.EXCHANGE_RPOXY || '';
+export const EXCHANGE_PROXY = process.env.EXCHANGE_PROXY || '';
 
 export const PORT = process.env.PORT || 8008;
 

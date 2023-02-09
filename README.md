@@ -27,7 +27,7 @@ setup the `.env` file below:
 
 ```
 # Required
-EXCHANGE_RPOXY= # ZeroEx contract address
+EXCHANGE_PROXY= # ZeroEx contract address
 RPC_URL=http://localhost:8545 # Local or Mainnet RPC URL
 ```
 

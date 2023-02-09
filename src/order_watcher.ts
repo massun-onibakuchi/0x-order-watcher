@@ -4,7 +4,7 @@ import { LimitOrderFields } from '@0x/protocol-utils';
 import fs from 'fs';
 import { Logger } from 'pino';
 
-import { CHAIN_ID, EXCHANGE_RPOXY, LOG_PATH } from './config';
+import { CHAIN_ID, EXCHANGE_PROXY, LOG_PATH } from './config';
 import { orderUtils } from './utils/order_utils';
 import { formatDate } from './utils/formatDate';
 import { LimitOrderFilledEventArgs, SignedLimitOrder, OrderCanceledEventArgs } from './types';
@@ -73,8 +73,8 @@ export class OrderWatcher implements OrderWatcherInterface {
         const orderEntities = await this._connection.getRepository(SignedOrderV4Entity).find({
             where: {
                 hash: In(events.map((event) => event.orderHash)),
-            }}
-        );
+            },
+        });
         if (orderEntities.length > 0) {
             await this._syncFreshOrders(orderEntities);
         }
@@ -239,15 +239,15 @@ export async function createOrderWatcher(
     if (chainId !== CHAIN_ID) {
         throw new Error(`Invalid ChainId: ${CHAIN_ID}!= ${chainId}`);
     }
-    if (!ethers.utils.isAddress(EXCHANGE_RPOXY)) {
-        throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_RPOXY}`);
+    if (!ethers.utils.isAddress(EXCHANGE_PROXY)) {
+        throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_PROXY}`);
     }
-    if ((await provider.getCode(EXCHANGE_RPOXY)) == '0x') {
-        throw new Error(`ZeroEx is not deployed: ${EXCHANGE_RPOXY}`);
+    if ((await provider.getCode(EXCHANGE_PROXY)) == '0x') {
+        throw new Error(`ZeroEx is not deployed: ${EXCHANGE_PROXY}`);
     }
 
     const exchangeContract = new ethers.Contract(
-        EXCHANGE_RPOXY,
+        EXCHANGE_PROXY,
         new ethers.utils.Interface(NativeOrdersFeature.abi),
         provider,
     );

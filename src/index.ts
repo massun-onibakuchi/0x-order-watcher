@@ -2,10 +2,10 @@ import express from 'express';
 import { ethers } from 'ethers';
 import ExpressPinoLogger from 'express-pino-logger';
 
-import { OrderWatcher, createOrderWatcher } from './order_watcher';
-import { getDBConnectionAsync } from './db_connection';
-import { logger } from './logger';
 import { RPC_URL, PORT, SYNC_INTERVAL, POLLING_INTERVAL } from './config';
+import { getDBConnectionAsync } from './db_connection';
+import { OrderWatcher, createOrderWatcher } from './order_watcher';
+import { logger } from './logger';
 
 const expressPino = ExpressPinoLogger({
     logger,
