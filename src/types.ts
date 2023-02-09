@@ -1,8 +1,6 @@
-import { HttpServiceConfig as BaseHttpConfig } from '@0x/api-utils';
 import {
     AffiliateFeeType,
     ChainId,
-    ContractAddresses,
     ERC20BridgeSource,
     ExtendedQuoteReportSources,
     LimitOrderFields,
@@ -10,7 +8,6 @@ import {
     QuoteReport,
     RfqRequestOpts,
     Signature,
-    SupportedProvider,
 } from '@0x/asset-swapper';
 import { ExchangeProxyMetaTransaction, ZeroExTransaction } from '@0x/types';
 import { BigNumber } from '@0x/utils';
@@ -297,7 +294,7 @@ export interface GetSwapQuoteParams extends SwapQuoteParamsBase {
 }
 
 // GET /swap/price
-export interface GetSwapPriceResponse extends BasePriceResponse {}
+export interface GetSwapPriceResponse extends BasePriceResponse { }
 
 // GET /swap/prices
 export interface Price {
@@ -314,7 +311,7 @@ export interface GetMetaTransactionQuoteResponse extends BasePriceResponse {
 }
 
 // GET /meta_transaction/price
-export interface GetMetaTransactionPriceResponse extends BasePriceResponse {}
+export interface GetMetaTransactionPriceResponse extends BasePriceResponse { }
 
 // GET /meta_transaction/status/:txhash
 export interface GetMetaTransactionStatusResponse {
@@ -398,31 +395,6 @@ export interface TransactionWatcherSignerStatus {
         [address: string]: number;
     };
 }
-
-// export interface TransactionWatcherSignerServiceConfig {
-//     provider: SupportedProvider;
-//     chainId: number;
-//     contractAddresses: ContractAddresses;
-//     signerPrivateKeys: string[];
-//     expectedMinedInSec: number;
-//     isSigningEnabled: boolean;
-//     maxGasPriceGwei: BigNumber;
-//     minSignerEthBalance: number;
-//     transactionPollingIntervalMs: number;
-//     heartbeatIntervalMs: number;
-//     unstickGasMultiplier: number;
-//     numBlocksUntilConfirmed: number;
-//     rateLimiter?: MetaTransactionRateLimiter;
-// }
-
-// export interface HttpServiceConfig extends BaseHttpConfig {
-//     ethereumRpcUrl: string;
-//     kafkaBrokers?: string[];
-//     kafkaConsumerGroupId?: string;
-//     metaTxnRateLimiters?: MetaTransactionRateLimitConfig;
-//     rpcRequestTimeout: number;
-//     shouldCompressRequest: boolean;
-// }
 
 export interface TokenMetadataOptionalSymbol {
     symbol?: string;
