@@ -12,9 +12,7 @@ export const DEFAULT_LOGGER_INCLUDE_TIMESTAMP = true;
 export const LOGGER_INCLUDE_TIMESTAMP =
     process.env.LOGGER_INCLUDE_TIMESTAMP === 'true' ?? DEFAULT_LOGGER_INCLUDE_TIMESTAMP;
 
-export const DEFAULT_CHAIN_ID: ChainId = ChainId.Ganache;
-
-export const CHAIN_ID: ChainId = Number(process.env.CHAIN_ID) ?? DEFAULT_CHAIN_ID;
+export const CHAIN_ID: ChainId = Number(process.env.CHAIN_ID) ?? ChainId.Ganache;
 
 export const DEFAULT_LOCAL_RPC_URL = 'http://localhost:8545';
 
@@ -43,9 +41,7 @@ export const SYNC_INTERVAL: number = Number(process.env.SYNC_INTERVAL) || 2000;
 
 export const POLLING_INTERVAL: number = Number(process.env.POLLING_INTERVAL) || 1000;
 
-export const DEFAULT_LOG_PATH: string = '../events.csv';
-
-export const LOG_PATH: string = process.env.LOG_PATH || DEFAULT_LOG_PATH;
+export const LOG_PATH: string = process.env.LOG_PATH || '../events.csv';
 
 export interface Integrator {
     apiKeys: string[];
