@@ -12,6 +12,8 @@ export const DEFAULT_LOGGER_INCLUDE_TIMESTAMP = true;
 export const LOGGER_INCLUDE_TIMESTAMP =
     process.env.LOGGER_INCLUDE_TIMESTAMP === 'true' ?? DEFAULT_LOGGER_INCLUDE_TIMESTAMP;
 
+console.log(process.env.CHAIN_ID);
+
 export const CHAIN_ID: ChainId = Number(process.env.CHAIN_ID) ?? ChainId.Ganache;
 
 export const DEFAULT_LOCAL_RPC_URL = 'http://localhost:8545';
