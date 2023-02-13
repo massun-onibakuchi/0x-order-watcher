@@ -36,7 +36,7 @@ if (require.main === module) {
         orderWatcher = await createOrderWatcher(dbConnection, provider, logger);
     })().then(() => {
         // periodically remove expired orders from DB
-        const timerId = setTimeout(async (ow) => {
+        const timerId = setInterval(async (ow) => {
             logger.debug('start syncing unfilled orders...');
             try {
                 await ow.syncFreshOrders();
