@@ -209,6 +209,7 @@ export class OrderWatcher implements OrderWatcherInterface {
                 invalidOrderEntities.push(entity);
             }
             // NOTE: ここには来ないはず
+            logger.warn(`unknown order status: ${_info.status}`);
         }
         logger.debug(`_filterFreshOrders returns: validOrderEntities:>> ${validOrderEntities} `);
         logger.debug(`_filterFreshOrders returns: invalidOrderEntities:>> ${invalidOrderEntities} `);
