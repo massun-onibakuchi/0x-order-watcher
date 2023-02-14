@@ -190,17 +190,25 @@ export class OrderWatcher implements OrderWatcherInterface {
                 `order is ${OrderStatus[_info.status]} hash: ${_info.orderHash} info: ${_info} actualFillableTakerTokenAmount: ${_actualFillableTakerTokenAmount}`,
             );
 
-            if (_actualFillableTakerTokenAmount.gt(0) && _info.status === OrderStatus.FILLABLE) {
-                validOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.INVALID || _actualFillableTakerTokenAmount.isZero()) {
-                invalidOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.FILLED) {
-                filledOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.CANCELLED) {
-                canceledOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.EXPIRED) {
+            if (_info.status === OrderStatus.EXPIRED) {
                 expiredOrderEntities.push(entity);
             }
+            // NOTE: CANCELEDの注文は、_actualFillableTakerTokenAmountが0になっている。
+            else if (_info.status === OrderStatus.CANCELLED) {
+                canceledOrderEntities.push(entity);
+            }
+            else if (_info.status === OrderStatus.FILLED) {
+                filledOrderEntities.push(entity);
+            }
+            // XXX: FILLABLEの注文は、_actualFillableTakerTokenAmountが0より大きいとは限らないはず。
+            // makerの残高やallowanceが足りない場合は、_actualFillableTakerTokenAmountが0になる。(ZeroExのコード確認済み)
+            else if (_info.status === OrderStatus.FILLABLE && _actualFillableTakerTokenAmount.gt(0)) {
+                validOrderEntities.push(entity);
+            }
+            else if (_info.status === OrderStatus.INVALID || _actualFillableTakerTokenAmount.isZero()) {
+                invalidOrderEntities.push(entity);
+            }
+            // NOTE: ここには来ないはず
         }
         logger.debug(`_filterFreshOrders returns: validOrderEntities:>> ${validOrderEntities} `);
         logger.debug(`_filterFreshOrders returns: invalidOrderEntities:>> ${invalidOrderEntities} `);
