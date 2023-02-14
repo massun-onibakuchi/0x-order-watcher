@@ -92,6 +92,7 @@ export class OrderWatcher implements OrderWatcherInterface {
 
     /// @dev DB内のmaker注文を最新の状態に同期する。
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
+        logger.debug(`_syncFreshOrders param: orderEntities:>> ${orderEntities}`);
         const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
             await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
 
@@ -111,7 +112,10 @@ export class OrderWatcher implements OrderWatcherInterface {
 
         // remove orders
         const ordersRemove = invalidOrders.concat(canceledOrders, expiredOrderEntities, filledOrders);
-        logger.debug(`target remove orders: ${ordersRemove}`);
+        logger.debug(`target remove invalidOrders: ${invalidOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+        logger.debug(`target remove canceledOrders: ${canceledOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+        logger.debug(`target remove filledOrders: ${filledOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+        logger.debug(`target remove orders: ${ordersRemove.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         if (ordersRemove.length > 0) {
             await this._connection.getRepository(SignedOrderV4Entity).remove(ordersRemove);
             logger.info(`remove orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
@@ -135,6 +139,7 @@ export class OrderWatcher implements OrderWatcherInterface {
 
         // split orders into limitOrders and signatures
         for (const order of orders) {
+            logger.debug(`SignedLimitOrder[i]:>> ${JSON.stringify(order, null)}`);
             const { signature, ...limitOrder } = order;
             signatures.push(signature);
             limitOrders.push({
@@ -154,11 +159,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         /// @return actualFillableTakerTokenAmounts How much of each order is fillable
         ///         based on maker funds, in taker tokens.
         /// @return isSignatureValids Whether each signature is valid for the order.
-        const {
-            orderInfos,
-            actualFillableTakerTokenAmounts,
-            isSignatureValids,
-        }: {
+        const orderStates: {
             orderInfos: {
                 orderHash: string;
                 status: number;
@@ -168,55 +169,44 @@ export class OrderWatcher implements OrderWatcherInterface {
             isSignatureValids: boolean[];
         } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
 
-        isSignatureValids.forEach((isValidSig: Boolean, index) => {
-            if (!isValidSig) {
-                // TODO: throwじゃなくてinvalidOrderEntitiesに追加するだけでは？
-                throw new Error(`invalid signature: ${orderInfos[index].orderHash}`);
-            }
+        for (let i = 0; i < orderStates.orderInfos.length; i++) {
+            const _info = orderStates.orderInfos[i];
+            const _actualFillableTakerTokenAmount = orderStates.actualFillableTakerTokenAmounts[i];
+            const _isSigValid = orderStates.isSignatureValids[i];
 
+            if (!_isSigValid) {
+                // TODO: throwじゃなくてinvalidOrderEntitiesに追加するだけでは？
+                throw new Error(`invalid signature: ${_info.orderHash}`);
+            }
             const entity = orderUtils.serializeOrder({
-                order: orders[index],
+                order: orders[i],
                 metaData: {
-                    orderHash: orderInfos[index].orderHash,
-                    remainingFillableTakerAmount: actualFillableTakerTokenAmounts[index] as any,
+                    orderHash: _info.orderHash,
+                    remainingFillableTakerAmount: _actualFillableTakerTokenAmount as any,
                 },
             });
 
-            if (actualFillableTakerTokenAmounts[index].gt(0) && orderInfos[index].status === OrderStatus.FILLABLE) {
-                validOrderEntities.push(entity);
-            }
+            logger.info(
+                `order is ${OrderStatus[_info.status]} hash: ${_info.orderHash} info: ${_info} actualFillableTakerTokenAmount: ${_actualFillableTakerTokenAmount}`,
+            );
 
-            // TODO: switch分にする??
-            if (orderInfos[index].status === OrderStatus.INVALID) {
-                logger.info(
-                    `order is invalid: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
-                    } order: ${orderInfos[index]}`,
-                );
+            if (_actualFillableTakerTokenAmount.gt(0) && _info.status === OrderStatus.FILLABLE) {
+                validOrderEntities.push(entity);
+            } else if (_info.status === OrderStatus.INVALID || _actualFillableTakerTokenAmount.isZero()) {
                 invalidOrderEntities.push(entity);
-            } else if (actualFillableTakerTokenAmounts[index].isZero()) {
-                logger.info(
-                    `order is not fillable: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
-                    } order: ${orderInfos[index]}`,
-                );
-                // invalidOrderEntities.push(entity);
-            } else if (orderInfos[index].status === OrderStatus.FILLED) {
-                logger.info(
-                    `order is filled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]}`,
-                );
+            } else if (_info.status === OrderStatus.FILLED) {
                 filledOrderEntities.push(entity);
-            } else if (orderInfos[index].status === OrderStatus.CANCELLED) {
-                logger.info(
-                    `order is cancelled: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]
-                    }`,
-                );
+            } else if (_info.status === OrderStatus.CANCELLED) {
                 canceledOrderEntities.push(entity);
-            } else if (orderInfos[index].status === OrderStatus.EXPIRED) {
-                logger.info(
-                    `order is expired: ${orderInfos[index].orderHash} status: ${OrderStatus[orderInfos[index].status]}`,
-                );
+            } else if (_info.status === OrderStatus.EXPIRED) {
                 expiredOrderEntities.push(entity);
             }
-        });
+        }
+        logger.debug(`_filterFreshOrders returns: validOrderEntities:>> ${validOrderEntities} `);
+        logger.debug(`_filterFreshOrders returns: invalidOrderEntities:>> ${invalidOrderEntities} `);
+        logger.debug(`_filterFreshOrders returns: canceledOrderEntities:>> ${canceledOrderEntities} `);
+        logger.debug(`_filterFreshOrders returns: expiredOrderEntities:>> ${expiredOrderEntities} `);
+        logger.debug(`_filterFreshOrders returns: filledOrderEntities:>> ${filledOrderEntities} `);
         return [
             validOrderEntities,
             invalidOrderEntities,
@@ -234,13 +224,13 @@ export async function createOrderWatcher(
 ) {
     const { chainId } = await provider.getNetwork();
     if (chainId !== CHAIN_ID) {
-        throw new Error(`Invalid ChainId: ${CHAIN_ID}!= ${chainId}`);
+        throw new Error(`Invalid ChainId: ${CHAIN_ID}!= ${chainId} `);
     }
     if (!ethers.utils.isAddress(EXCHANGE_PROXY)) {
-        throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_PROXY}`);
+        throw new Error(`Invalid ZeroEx Address: ${EXCHANGE_PROXY} `);
     }
     if ((await provider.getCode(EXCHANGE_PROXY)) == '0x') {
-        throw new Error(`ZeroEx is not deployed: ${EXCHANGE_PROXY}`);
+        throw new Error(`ZeroEx is not deployed: ${EXCHANGE_PROXY} `);
     }
 
     const exchangeContract = new ethers.Contract(
@@ -251,7 +241,7 @@ export async function createOrderWatcher(
 
     const orderWatcher = new OrderWatcher(connection, exchangeContract);
 
-    logger.info(`${provider.connection.url} is connected. ZeroEx: ${exchangeContract.address}`);
+    logger.info(`${provider.connection.url} is connected.ZeroEx: ${exchangeContract.address} `);
     logger.info('OrderWatcher is ready. LogLevel: ' + logger.level);
 
     const eventLogPath = LOG_PATH;
@@ -265,7 +255,7 @@ export async function createOrderWatcher(
         const filledOrderEvent = exchangeContract.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
         fs.appendFile(
             eventLogPath,
-            `filledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount}\n`, // prettier-ignore
+            `filledOrder, ${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount} \n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
@@ -282,7 +272,7 @@ export async function createOrderWatcher(
         const canceledOrderEvent = exchangeContract.interface.parseLog(log).args as any as OrderCanceledEventArgs;
         fs.appendFile(
             eventLogPath,
-            `canceledOrder,${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker}\n`, // prettier-ignore
+            `canceledOrder, ${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker} \n`, // prettier-ignore
             (err) => {
                 if (err) {
                     logger.error(err);
