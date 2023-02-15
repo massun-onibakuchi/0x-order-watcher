@@ -11,6 +11,7 @@ import { LimitOrderFilledEventArgs, SignedLimitOrder, OrderCanceledEventArgs } f
 import { SignedOrderV4Entity } from './entities';
 import { logger } from './logger';
 import NativeOrdersFeature from './abi/NativeOrdersFeature.json';
+import {performance as pf} from 'perf_hooks'
 
 export interface OrderWatcherInterface {
     postOrdersAsync(orders: SignedLimitOrder[]): Promise<void>;
@@ -32,7 +33,6 @@ enum OrderStatus {
 export class OrderWatcher implements OrderWatcherInterface {
     private readonly _connection: Connection;
     private readonly _zeroEx: ethers.Contract;
-    private readonly _chunkSize = 200;
 
     constructor(connection: Connection, exchangeContract: ethers.Contract) {
         this._connection = connection;
@@ -43,6 +43,7 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @notice 0xAPIのmaker注文提出API(POST orderbook/v1/order)が叩かれたときに呼ばれる。
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
         // validate whether orders are valid format.
+        
         const [validOrders, invalidOrders, canceledOrders, expiredOrders, filledOrders] = await this._filterFreshOrders(
             orders,
         ).catch((e) => {
@@ -88,27 +89,25 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev DB内のmaker注文を最新の状態に同期する。
     public async syncFreshOrders() {
         const orderEntities = await this._connection.getRepository(SignedOrderV4Entity).find();
-
-        // NOTE: `chunkSize`件ずつに分割して処理する
-        // entityの数が多すぎるとzeroExで注文ステータスを取得するリクエストが失敗する
-        const length = orderEntities.length;
-        const promises = [];
-        for (let i = 0; i < length; i += this._chunkSize) {
-            // NOTE: sliceはend がシーケンスの長さを超えた場合も シーケンスの最後 (arr.length) までを取り出す
-            promises.push(this._syncFreshOrders(orderEntities.slice(i, i + this._chunkSize)));
-        }
-        await Promise.all(promises);
+        const startTime = pf.now()
+        await this._syncFreshOrders(orderEntities);
+        const endTime = pf.now()
+        logger.info(`_syncFreshOrders execution time: ${endTime - startTime}`)
     }
 
     /// @dev DB内のmaker注文を最新の状態に同期する。
-    /// @notice orderEntities 長さが一定を超えるとZeroExへのRPCリクエストがcalldata大きすぎのため失敗する
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
         logger.debug(`_syncFreshOrders param: orderEntities:>> ${orderEntities}`);
+        
+        const startTime = pf.now()
         const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
             await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
-
+        const endTime = pf.now()
+        logger.info(`_filterFreshOrders execution time: ${endTime - startTime}`)
+        
         // update valid orders
         if (validOrders.length > 0) {
+            const startTime = pf.now()
             await this._connection.getRepository(SignedOrderV4Entity).save(
                 validOrders.map((order) => {
                     return {
@@ -118,7 +117,9 @@ export class OrderWatcher implements OrderWatcherInterface {
                     };
                 }),
             );
-            logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+            const endTime = pf.now()
+            logger.info(`getRepository execution time: ${endTime - startTime}`)
+            // logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
 
         // remove orders
@@ -127,10 +128,19 @@ export class OrderWatcher implements OrderWatcherInterface {
         logger.debug(`target remove canceledOrders: ${canceledOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         logger.debug(`target remove filledOrders: ${filledOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         logger.debug(`target remove orders: ${ordersRemove.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
-
         if (ordersRemove.length > 0) {
+            const startTime = pf.now()
             await this._connection.getRepository(SignedOrderV4Entity).remove(ordersRemove);
+            const endTime = pf.now()
+            logger.info(`getRepository and remove orders execution time: ${endTime - startTime}`)
+
             logger.info(`remove orders: ${ordersRemove.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+            const currentValidOrders = await this._connection.getRepository(SignedOrderV4Entity).find()
+            const validOrderHashes = []
+            for (const order of currentValidOrders) {
+                validOrderHashes.push(order.hash)
+            }
+            logger.info(`current valid orders: ${validOrderHashes}`)
         }
     }
 
@@ -151,7 +161,7 @@ export class OrderWatcher implements OrderWatcherInterface {
 
         // split orders into limitOrders and signatures
         for (const order of orders) {
-            // logger.debug(`SignedLimitOrder[i]:>> ${JSON.stringify(order, null)}`);
+            logger.debug(`SignedLimitOrder[i]:>> ${JSON.stringify(order, null)}`);
             const { signature, ...limitOrder } = order;
             signatures.push(signature);
             limitOrders.push({
@@ -171,6 +181,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         /// @return actualFillableTakerTokenAmounts How much of each order is fillable
         ///         based on maker funds, in taker tokens.
         /// @return isSignatureValids Whether each signature is valid for the order.
+        const startTime = pf.now()
         const orderStates: {
             orderInfos: {
                 orderHash: string;
@@ -180,12 +191,18 @@ export class OrderWatcher implements OrderWatcherInterface {
             actualFillableTakerTokenAmounts: BigNumber[];
             isSignatureValids: boolean[];
         } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
+        const endTime = pf.now()
+        logger.info(`batchGetLimitOrderRelevantStates execution time: ${endTime - startTime}`)
 
         for (let i = 0; i < orderStates.orderInfos.length; i++) {
             const _info = orderStates.orderInfos[i];
             const _actualFillableTakerTokenAmount = orderStates.actualFillableTakerTokenAmounts[i];
             const _isSigValid = orderStates.isSignatureValids[i];
 
+            if (!_isSigValid) {
+                // TODO: throwじゃなくてinvalidOrderEntitiesに追加するだけでは？
+                throw new Error(`invalid signature: ${_info.orderHash}`);
+            }
             const entity = orderUtils.serializeOrder({
                 order: orders[i],
                 metaData: {
@@ -194,42 +211,24 @@ export class OrderWatcher implements OrderWatcherInterface {
                 },
             });
 
-            logger.info(
-                `order is ${OrderStatus[_info.status]} hash: ${_info.orderHash} takerTokenFilledAmount: ${_info.takerTokenFilledAmount} actualFillableTakerTokenAmount: ${_actualFillableTakerTokenAmount} isSigValid: ${_isSigValid}`,
-            );
-            // Orderのステータスで処理を分岐させる
-            // 無効なものを先に弾く
-            switch (_info.status) {
-                case OrderStatus.EXPIRED:
-                    expiredOrderEntities.push(entity);
-                    break;
-                case OrderStatus.CANCELLED:
-                    // NOTE: CANCELLEDの注文は、_actualFillableTakerTokenAmount == 0. そのためInvalidよりも先nに処理する
-                    canceledOrderEntities.push(entity);
-                    break;
-                case OrderStatus.FILLED:
-                    filledOrderEntities.push(entity);
-                    break;
-                case OrderStatus.INVALID:
-                    if (!_isSigValid) {
-                        logger.info(`order is invalid signature: ${_info.orderHash}`);
-                    }
-                    invalidOrderEntities.push(entity);
-                    break;
-                case OrderStatus.FILLABLE:
-                    // NOTE: FILLABLEの注文は、_actualFillableTakerTokenAmountが0より大きいとは限らない
-                    // makerの残高やallowanceが足りない場合は、_actualFillableTakerTokenAmountが0になる。(ZeroExのコード確認済み)
-                    // その場合は、約定できないのでinvalidとして扱い、DBに保存しない.
-                    const orderEntities = (_actualFillableTakerTokenAmount.gt(0)) ? validOrderEntities : invalidOrderEntities
-                    orderEntities.push(entity);
-                    break;
-                default:
-                    // NOTE: ここには来ないはず
-                    logger.warn(`Can't catch order: hash ${_info.orderHash}`);
-                    break;
+            if (_info.status !== 1) {
+                logger.info(
+                    `order is ${OrderStatus[_info.status]} hash: ${_info.orderHash} info: ${_info} actualFillableTakerTokenAmount: ${_actualFillableTakerTokenAmount}`,
+                );
+            }
+
+            if (_actualFillableTakerTokenAmount.gt(0) && _info.status === OrderStatus.FILLABLE) {
+                validOrderEntities.push(entity);
+            } else if (_info.status === OrderStatus.INVALID || _actualFillableTakerTokenAmount.isZero()) {
+                invalidOrderEntities.push(entity);
+            } else if (_info.status === OrderStatus.FILLED) {
+                filledOrderEntities.push(entity);
+            } else if (_info.status === OrderStatus.CANCELLED) {
+                canceledOrderEntities.push(entity);
+            } else if (_info.status === OrderStatus.EXPIRED) {
+                expiredOrderEntities.push(entity);
             }
         }
-
         logger.debug(`_filterFreshOrders returns: validOrderEntities:>> ${validOrderEntities} `);
         logger.debug(`_filterFreshOrders returns: invalidOrderEntities:>> ${invalidOrderEntities} `);
         logger.debug(`_filterFreshOrders returns: canceledOrderEntities:>> ${canceledOrderEntities} `);

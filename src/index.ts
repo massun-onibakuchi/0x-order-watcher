@@ -6,6 +6,7 @@ import { RPC_URL, PORT, SYNC_INTERVAL, POLLING_INTERVAL } from './config';
 import { getDBConnectionAsync } from './db_connection';
 import { OrderWatcher, createOrderWatcher } from './order_watcher';
 import { logger } from './logger';
+import {performance as pf} from 'perf_hooks'
 
 const expressPino = ExpressPinoLogger({
     logger,
@@ -38,11 +39,14 @@ if (require.main === module) {
         // periodically remove expired orders from DB
         const timerId = setInterval(async (ow) => {
             logger.debug('start syncing unfilled orders...');
+            const startTime = pf.now()
             try {
                 await ow.syncFreshOrders();
             } catch (error) {
                 logger.error(error);
             }
+            const endTime = pf.now()
+            logger.info(`syncFreshOrders execution time: ${endTime - startTime}`)
         }, SYNC_INTERVAL, orderWatcher);
 
         app.post('/ping', function (req, res) {
