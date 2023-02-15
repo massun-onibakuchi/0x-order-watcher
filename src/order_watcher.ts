@@ -88,11 +88,11 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev DB内のmaker注文を最新の状態に同期する。
     public async syncFreshOrders() {
         const orderEntities = await this._connection.getRepository(SignedOrderV4Entity).find();
-        const promises = [];
 
         // NOTE: `chunkSize`件ずつに分割して処理する
         // entityの数が多すぎるとzeroExで注文ステータスを取得するリクエストが失敗する
         const length = orderEntities.length;
+        const promises = [];
         for (let i = 0; i < length; i += this._chunkSize) {
             // NOTE: sliceはend がシーケンスの長さを超えた場合も シーケンスの最後 (arr.length) までを取り出す
             promises.push(this._syncFreshOrders(orderEntities.slice(i, i + this._chunkSize)));
@@ -127,9 +127,10 @@ export class OrderWatcher implements OrderWatcherInterface {
         logger.debug(`target remove canceledOrders: ${canceledOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         logger.debug(`target remove filledOrders: ${filledOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         logger.debug(`target remove orders: ${ordersRemove.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+
         if (ordersRemove.length > 0) {
             await this._connection.getRepository(SignedOrderV4Entity).remove(ordersRemove);
-            logger.info(`remove orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
+            logger.info(`remove orders: ${ordersRemove.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
     }
 
@@ -228,6 +229,7 @@ export class OrderWatcher implements OrderWatcherInterface {
                     break;
             }
         }
+
         logger.debug(`_filterFreshOrders returns: validOrderEntities:>> ${validOrderEntities} `);
         logger.debug(`_filterFreshOrders returns: invalidOrderEntities:>> ${invalidOrderEntities} `);
         logger.debug(`_filterFreshOrders returns: canceledOrderEntities:>> ${canceledOrderEntities} `);
@@ -279,15 +281,15 @@ export async function createOrderWatcher(
     const orderFilledEventFilter = exchangeContract.filters.LimitOrderFilled();
     provider.on(orderFilledEventFilter, async (log) => {
         const filledOrderEvent = exchangeContract.interface.parseLog(log).args as any as LimitOrderFilledEventArgs;
-        // fs.appendFile(
-        //     eventLogPath,
-        //     `filledOrder, ${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount} \n`, // prettier-ignore
-        //     (err) => {
-        //         if (err) {
-        //             logger.error(err);
-        //         }
-        //     },
-        // );
+        fs.appendFile(
+            eventLogPath,
+            `filledOrder, ${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${filledOrderEvent.orderHash},${filledOrderEvent.maker},${filledOrderEvent.taker},${filledOrderEvent.makerToken},${filledOrderEvent.takerToken},${filledOrderEvent.takerTokenFilledAmount},${filledOrderEvent.makerTokenFilledAmount},${filledOrderEvent.takerTokenFeeFilledAmount} \n`, // prettier-ignore
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
+            },
+        );
         logger.debug('filledOrderEvent: orderHash ' + filledOrderEvent.orderHash);
         await orderWatcher.updateFilledOrdersAsync([filledOrderEvent]);
     });
@@ -296,15 +298,15 @@ export async function createOrderWatcher(
     const orderCanceledEventFilter = exchangeContract.filters.OrderCancelled();
     provider.on(orderCanceledEventFilter, async (log) => {
         const canceledOrderEvent = exchangeContract.interface.parseLog(log).args as any as OrderCanceledEventArgs;
-        // fs.appendFile(
-        //     eventLogPath,
-        //     `canceledOrder, ${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker} \n`, // prettier-ignore
-        //     (err) => {
-        //         if (err) {
-        //             logger.error(err);
-        //         }
-        //     },
-        // );
+        fs.appendFile(
+            eventLogPath,
+            `canceledOrder, ${log.blockNumber},${formatDate(new Date())},${log.transactionHash},${canceledOrderEvent.orderHash},${canceledOrderEvent.maker} \n`, // prettier-ignore
+            (err) => {
+                if (err) {
+                    logger.error(err);
+                }
+            },
+        );
         await orderWatcher.updateCanceledOrdersByHashAsync([canceledOrderEvent.orderHash]);
         logger.debug('canceledOrderEvent: orderHash ' + canceledOrderEvent.orderHash);
     });
