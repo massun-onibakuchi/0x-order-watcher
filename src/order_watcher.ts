@@ -111,6 +111,7 @@ export class OrderWatcher implements OrderWatcherInterface {
     }
 
     /// @dev DB内のmaker注文を最新の状態に同期する。
+    /// @notice orderEntities 長さが一定を超えるとZeroExへのRPCリクエストがcalldata大きすぎのため失敗する
     private async _syncFreshOrders(orderEntities: SignedOrderV4Entity[]) {
         logger.debug(`_syncFreshOrders param: orderEntities:>> ${orderEntities}`);
         
