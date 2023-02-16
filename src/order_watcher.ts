@@ -11,7 +11,7 @@ import { LimitOrderFilledEventArgs, SignedLimitOrder, OrderCanceledEventArgs } f
 import { SignedOrderV4Entity } from './entities';
 import { logger } from './logger';
 import NativeOrdersFeature from './abi/NativeOrdersFeature.json';
-import {performance as pf} from 'perf_hooks'
+import { performance as pf } from 'perf_hooks'
 
 export interface OrderWatcherInterface {
     postOrdersAsync(orders: SignedLimitOrder[]): Promise<void>;
@@ -42,14 +42,16 @@ export class OrderWatcher implements OrderWatcherInterface {
     /// @dev assume schema has already been validated.
     /// @notice 0xAPIのmaker注文提出API(POST orderbook/v1/order)が叩かれたときに呼ばれる。
     public async postOrdersAsync(orders: SignedLimitOrder[]): Promise<void> {
+        const startTimeFilter = pf.now()
         // validate whether orders are valid format.
-        
         const [validOrders, invalidOrders, canceledOrders, expiredOrders, filledOrders] = await this._filterFreshOrders(
             orders,
         ).catch((e) => {
             logger.error(`error:`, e);
             throw e;
         });
+        const endTimeFilter = pf.now()
+        logger.info(`[postOrdersAsync] _filterFreshOrders execution time: ${endTimeFilter - startTimeFilter}`)
 
         if (invalidOrders.length > 0) {
             throw new Error(`invalid orders ${JSON.stringify(invalidOrders)}`);
@@ -65,7 +67,10 @@ export class OrderWatcher implements OrderWatcherInterface {
             throw new Error(`already fully filled orders ${JSON.stringify(filledOrders)}`);
         }
         // Saves all given entities in the database. If entities do not exist in the database then inserts, otherwise updates.
+        const startTimeGetRepo = pf.now()
         await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
+        const endTimeGetRepo = pf.now()
+        logger.info(`[postOrdersAsync] getRepository execution time: ${endTimeFilter - startTimeGetRepo}`)
     }
 
     /// @dev
@@ -92,7 +97,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         const startTime = pf.now()
         await this._syncFreshOrders(orderEntities);
         const endTime = pf.now()
-        logger.info(`_syncFreshOrders execution time: ${endTime - startTime}`)
+        logger.info(`[syncFreshOrders] _syncFreshOrders execution time: ${endTime - startTime}`)
     }
 
     /// @dev DB内のmaker注文を最新の状態に同期する。
@@ -103,7 +108,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         const [validOrders, invalidOrders, canceledOrders, expiredOrderEntities, filledOrders] =
             await this._filterFreshOrders(orderEntities.map((order) => orderUtils.deserializeOrder(order as any)));
         const endTime = pf.now()
-        logger.info(`_filterFreshOrders execution time: ${endTime - startTime}`)
+        logger.info(`[_syncFreshOrders] _filterFreshOrders execution time: ${endTime - startTime}`)
         
         // update valid orders
         if (validOrders.length > 0) {
@@ -118,7 +123,7 @@ export class OrderWatcher implements OrderWatcherInterface {
                 }),
             );
             const endTime = pf.now()
-            logger.info(`getRepository execution time: ${endTime - startTime}`)
+            logger.info(`[_syncFreshOrders] getRepository and save execution time: ${endTime - startTime}`)
             // logger.info(`sync orders: ${validOrders.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
         }
 
@@ -132,7 +137,7 @@ export class OrderWatcher implements OrderWatcherInterface {
             const startTime = pf.now()
             await this._connection.getRepository(SignedOrderV4Entity).remove(ordersRemove);
             const endTime = pf.now()
-            logger.info(`getRepository and remove orders execution time: ${endTime - startTime}`)
+            logger.info(`[_syncFreshOrders] getRepository and remove orders execution time: ${endTime - startTime}`)
 
             logger.info(`remove orders: ${ordersRemove.reduce((acc, order) => `${order?.hash}, ${acc}`, '')}`);
             const currentValidOrders = await this._connection.getRepository(SignedOrderV4Entity).find()
@@ -192,7 +197,7 @@ export class OrderWatcher implements OrderWatcherInterface {
             isSignatureValids: boolean[];
         } = await this._zeroEx.batchGetLimitOrderRelevantStates(limitOrders, signatures);
         const endTime = pf.now()
-        logger.info(`batchGetLimitOrderRelevantStates execution time: ${endTime - startTime}`)
+        logger.info(`[_filterFreshOrders] batchGetLimitOrderRelevantStates execution time: ${endTime - startTime}\n limitOrders length is ${limitOrders.length}`)
 
         for (let i = 0; i < orderStates.orderInfos.length; i++) {
             const _info = orderStates.orderInfos[i];

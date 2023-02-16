@@ -57,8 +57,13 @@ if (require.main === module) {
         app.post('/orders', async function (req: express.Request, res) {
             try {
                 req.log.info(req.body);
+
                 // save orders to DB
+                const startPost = pf.now()
                 await orderWatcher.postOrdersAsync(req.body);
+                const endPost = pf.now()
+                logger.info(`postOrdersAsync execution time: ${endPost - startPost}`)
+
                 res.status(200).json();
             } catch (err) {
                 logger.error(err);
