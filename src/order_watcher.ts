@@ -222,16 +222,36 @@ export class OrderWatcher implements OrderWatcherInterface {
                 );
             }
 
-            if (_actualFillableTakerTokenAmount.gt(0) && _info.status === OrderStatus.FILLABLE) {
-                validOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.INVALID || _actualFillableTakerTokenAmount.isZero()) {
-                invalidOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.FILLED) {
-                filledOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.CANCELLED) {
-                canceledOrderEntities.push(entity);
-            } else if (_info.status === OrderStatus.EXPIRED) {
-                expiredOrderEntities.push(entity);
+            // Orderのステータスで処理を分岐させる
+            // 無効なものを先に弾く
+            switch (_info.status) {
+                case OrderStatus.EXPIRED:
+                    expiredOrderEntities.push(entity);
+                    break;
+                case OrderStatus.CANCELLED:
+                    // NOTE: CANCELLEDの注文は、_actualFillableTakerTokenAmount == 0. そのためInvalidよりも先nに処理する
+                    canceledOrderEntities.push(entity);
+                    break;
+                case OrderStatus.FILLED:
+                    filledOrderEntities.push(entity);
+                    break;
+                case OrderStatus.INVALID:
+                    if (!_isSigValid) {
+                        logger.info(`order is invalid signature: ${_info.orderHash}`);
+                    }
+                    invalidOrderEntities.push(entity);
+                    break;
+                case OrderStatus.FILLABLE:
+                    // NOTE: FILLABLEの注文は、_actualFillableTakerTokenAmountが0より大きいとは限らない
+                    // makerの残高やallowanceが足りない場合は、_actualFillableTakerTokenAmountが0になる。(ZeroExのコード確認済み)
+                    // その場合は、約定できないのでinvalidとして扱い、DBに保存しない.
+                    const orderEntities = (_actualFillableTakerTokenAmount.gt(0)) ? validOrderEntities : invalidOrderEntities
+                    orderEntities.push(entity);
+                    break;
+                default:
+                    // NOTE: ここには来ないはず
+                    logger.warn(`Can't catch order: hash ${_info.orderHash}`);
+                    break;
             }
         }
         logger.debug(`_filterFreshOrders returns: validOrderEntities:>> ${validOrderEntities} `);

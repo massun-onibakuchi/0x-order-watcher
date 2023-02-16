@@ -24,7 +24,7 @@ const config: ConnectionOptions = {
     entities,
     synchronize: false,
     logging: true,
-    logger: 'debug',
+    logger: 'simple-console',
     extra: {
         max: 100,
         statement_timeout: 10000,
