@@ -70,7 +70,7 @@ export class OrderWatcher implements OrderWatcherInterface {
         const startTimeGetRepo = pf.now()
         await this._connection.getRepository(SignedOrderV4Entity).save(validOrders);
         const endTimeGetRepo = pf.now()
-        logger.info(`[postOrdersAsync] getRepository execution time: ${endTimeFilter - startTimeGetRepo}`)
+        logger.info(`[postOrdersAsync] getRepository execution time: ${endTimeGetRepo - startTimeGetRepo}`)
     }
 
     /// @dev
