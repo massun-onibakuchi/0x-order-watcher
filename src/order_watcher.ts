@@ -33,7 +33,7 @@ enum OrderStatus {
 export class OrderWatcher implements OrderWatcherInterface {
     private readonly _connection: Connection;
     private readonly _zeroEx: ethers.Contract;
-    private readonly _chunkSize = 200;
+    private readonly _chunkSize = 50;
 
     constructor(connection: Connection, exchangeContract: ethers.Contract) {
         this._connection = connection;
@@ -99,13 +99,12 @@ export class OrderWatcher implements OrderWatcherInterface {
         // entityの数が多すぎるとzeroExで注文ステータスを取得するリクエストが失敗する
         const length = orderEntities.length;
         const promises = [];
+        const startTime = pf.now()
         for (let i = 0; i < length; i += this._chunkSize) {
             // NOTE: sliceはend がシーケンスの長さを超えた場合も シーケンスの最後 (arr.length) までを取り出す
             promises.push(this._syncFreshOrders(orderEntities.slice(i, i + this._chunkSize)));
         }
         await Promise.all(promises);
-        const startTime = pf.now()
-        await this._syncFreshOrders(orderEntities);
         const endTime = pf.now()
         logger.info(`[syncFreshOrders] _syncFreshOrders execution time: ${endTime - startTime}`)
     }
