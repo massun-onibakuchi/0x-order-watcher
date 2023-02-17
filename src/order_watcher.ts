@@ -33,7 +33,7 @@ enum OrderStatus {
 export class OrderWatcher implements OrderWatcherInterface {
     private readonly _connection: Connection;
     private readonly _zeroEx: ethers.Contract;
-    private readonly _chunkSize = 50;
+    private readonly _chunkSize = 100;
 
     constructor(connection: Connection, exchangeContract: ethers.Contract) {
         this._connection = connection;
