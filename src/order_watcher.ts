@@ -214,10 +214,6 @@ export class OrderWatcher implements OrderWatcherInterface {
             const _actualFillableTakerTokenAmount = orderStates.actualFillableTakerTokenAmounts[i];
             const _isSigValid = orderStates.isSignatureValids[i];
 
-            if (!_isSigValid) {
-                // TODO: throwじゃなくてinvalidOrderEntitiesに追加するだけでは？
-                throw new Error(`invalid signature: ${_info.orderHash}`);
-            }
             const entity = orderUtils.serializeOrder({
                 order: orders[i],
                 metaData: {
