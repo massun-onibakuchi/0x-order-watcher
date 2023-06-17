@@ -6,6 +6,7 @@ import { RPC_URL, PORT, SYNC_INTERVAL, POLLING_INTERVAL } from './config';
 import { getDBConnectionAsync } from './db_connection';
 import { OrderWatcher, createOrderWatcher } from './order_watcher';
 import { logger } from './logger';
+import {performance as pf} from 'perf_hooks'
 
 const expressPino = ExpressPinoLogger({
     logger,
@@ -36,14 +37,17 @@ if (require.main === module) {
         orderWatcher = await createOrderWatcher(dbConnection, provider, logger);
     })().then(() => {
         // periodically remove expired orders from DB
-        const timerId = setInterval(async (ow) => {
-            logger.debug('start syncing unfilled orders...');
-            try {
-                await ow.syncFreshOrders();
-            } catch (error) {
-                logger.error(error);
-            }
-        }, SYNC_INTERVAL, orderWatcher);
+        // const timerId = setInterval(async (ow) => {
+        //     logger.debug('start syncing unfilled orders...');
+        //     const startTime = pf.now()
+        //     try {
+        //         await ow.syncFreshOrders();
+        //     } catch (error) {
+        //         logger.error(error);
+        //     }
+        //     const endTime = pf.now()
+        //     logger.info(`syncFreshOrders execution time: ${endTime - startTime}`)
+        // }, SYNC_INTERVAL, orderWatcher);
 
         app.post('/ping', function (req, res) {
             res.json({ msg: 'pong, Got a POST request' });
@@ -53,8 +57,13 @@ if (require.main === module) {
         app.post('/orders', async function (req: express.Request, res) {
             try {
                 req.log.info(req.body);
+
                 // save orders to DB
+                const startPost = pf.now()
                 await orderWatcher.postOrdersAsync(req.body);
+                const endPost = pf.now()
+                logger.info(`postOrdersAsync execution time: ${endPost - startPost}`)
+
                 res.status(200).json();
             } catch (err) {
                 logger.error(err);
